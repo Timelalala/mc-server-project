@@ -59,7 +59,8 @@ router.get('/servers/:id/session-count', verifyToken, bookingController.getSessi
 router.post('/servers/:id/join', verifyToken, bookingController.joinServer);
 router.post('/servers/:id/leave', verifyToken, bookingController.leaveServer);
 
-// --- Booking Routes (User authenticated) ---
+// --- Booking Routes ---
+router.get('/bookings/recent', bookingController.getRecentBookings);
 router.post('/bookings', verifyToken, bookingController.createBooking);
 router.post('/bookings/:id/cancel', verifyToken, bookingController.cancelBooking);
 router.get('/bookings/my', verifyToken, bookingController.getMyBookings);

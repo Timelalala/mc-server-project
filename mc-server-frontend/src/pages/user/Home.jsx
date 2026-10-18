@@ -97,21 +97,21 @@ const Home = () => {
       }
     };
 
-    const fetchMyBookings = async () => {
+    const fetchRecentBookings = async () => {
       try {
-        const resBookings = await api.get('/bookings/my');
-        if (resBookings.data && resBookings.data.length > 0) {
-          setRecentBookings(resBookings.data.slice(0, 3));
+        const res = await api.get('/bookings/recent');
+        if (res.data && res.data.length > 0) {
+          setRecentBookings(res.data.slice(0, 5));
         } else {
-          setRecentBookings(mockRecentBookings);
+          setRecentBookings([]);
         }
       } catch (err) {
-        setRecentBookings(mockRecentBookings);
+        setRecentBookings([]);
       }
     };
 
     fetchBaseData();
-    fetchMyBookings();
+    fetchRecentBookings();
   }, []);
 
   // Real-time Socket.IO overlay on top of base server data
@@ -265,31 +265,35 @@ const Home = () => {
         </h3>
 
         <div className="divide-y divide-[#2A2A3A]">
-          {recentBookings.map((b, idx) => (
-            <div key={idx} className="py-3.5 flex items-center justify-between text-sm">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-[#2d1b69] border border-purple-400/30 text-[#A78BFA] font-bold flex items-center justify-center text-xs">
-                  {b.username ? b.username.charAt(0).toUpperCase() : 'U'}
+          {recentBookings && recentBookings.length > 0 ? (
+            recentBookings.map((b, idx) => (
+              <div key={b.id || idx} className="py-3.5 flex items-center justify-between text-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#2d1b69] border border-purple-400/30 text-[#A78BFA] font-bold flex items-center justify-center text-xs">
+                    {b.username ? b.username.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <div>
+                    <p className="font-bold text-white">{b.serverName || `Server ${b.serverId || 'A'}`}</p>
+                    <p className="text-xs text-white/50">{b.date} • {b.time}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-bold text-white">{b.serverName || `Server ${b.serverId || 'A'}`}</p>
-                  <p className="text-xs text-white/50">{b.date} • {b.time}</p>
-                </div>
-              </div>
 
-              <div>
-                {b.status === 'confirmed' ? (
-                  <span className="bg-[#052E16] border border-[#059669] text-[#6EE7B7] text-xs px-2.5 py-0.5 rounded-full font-semibold">
-                    ยืนยันแล้ว
-                  </span>
-                ) : (
-                  <span className="bg-[#78350F] border border-[#D97706] text-[#FDE68A] text-xs px-2.5 py-0.5 rounded-full font-semibold">
-                    รอยืนยัน
-                  </span>
-                )}
+                <div>
+                  {b.status === 'confirmed' ? (
+                    <span className="bg-[#052E16] border border-[#059669] text-[#6EE7B7] text-xs px-2.5 py-0.5 rounded-full font-semibold">
+                      ยืนยันแล้ว
+                    </span>
+                  ) : (
+                    <span className="bg-[#78350F] border border-[#D97706] text-[#FDE68A] text-xs px-2.5 py-0.5 rounded-full font-semibold">
+                      รอยืนยัน
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="text-sm text-white/40 text-center py-6">ยังไม่มีประวัติการจองล่าสุดในระบบ</p>
+          )}
         </div>
       </div>
     </div>

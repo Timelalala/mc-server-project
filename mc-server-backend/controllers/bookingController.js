@@ -472,3 +472,32 @@ exports.leaveServer = async (req, res) => {
     connection.release();
   }
 };
+
+// GET /api/bookings/recent (Public endpoint for recent bookings)
+exports.getRecentBookings = async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        b.id,
+        u.username,
+        s.name AS serverName,
+        DATE_FORMAT(COALESCE(b.start_time, b.created_at), '%e %b') AS date,
+        CASE 
+          WHEN b.start_time IS NOT NULL AND b.end_time IS NOT NULL 
+          THEN CONCAT(DATE_FORMAT(b.start_time, '%H:%i'), ' - ', DATE_FORMAT(b.end_time, '%H:%i'))
+          ELSE '14:00 - 16:00'
+        END AS time,
+        b.status
+      FROM bookings b
+      JOIN servers s ON b.server_id = s.id
+      JOIN users u ON b.user_id = u.id
+      ORDER BY b.created_at DESC
+      LIMIT 5
+    `;
+    const [rows] = await db.query(query);
+    res.json(rows);
+  } catch (err) {
+    console.error('getRecentBookings error:', err);
+    res.status(500).json({ message: 'Error retrieving recent bookings.' });
+  }
+};
