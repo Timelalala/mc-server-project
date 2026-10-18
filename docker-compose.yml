@@ -70,9 +70,9 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: mc-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://backend:5000
-    depends_on:
-      - backend
+    command: tunnel --no-autoupdate --url http://host.docker.internal:5000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - mc-network
 
