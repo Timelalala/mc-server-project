@@ -5,6 +5,7 @@
   "description": "Integration and E2E Tests for Minecraft Booking System",
   "type": "module",
   "scripts": {
+    "build": "cd mc-server-frontend && npm install && npm run build",
     "test:api": "node --test tests/api/booking-rules.test.mjs",
     "test:e2e": "npx playwright test tests/e2e/booking.spec.js",
     "report": "node tests/build-report.mjs"
