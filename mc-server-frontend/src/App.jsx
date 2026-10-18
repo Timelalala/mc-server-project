@@ -9,7 +9,6 @@ import Login from './pages/user/Login';
 import Home from './pages/user/Home';
 import Booking from './pages/user/Booking';
 import MyBookings from './pages/user/MyBookings';
-import ServerStatus from './pages/user/ServerStatus';
 
 import Register from './pages/user/Register';
 import ForgotPassword from './pages/user/ForgotPassword';
@@ -21,7 +20,6 @@ import Users from './pages/admin/Users';
 import Servers from './pages/admin/Servers';
 import TimeSlots from './pages/admin/TimeSlots';
 import Bookings from './pages/admin/Bookings';
-import Payments from './pages/admin/Payments';
 
 // --- Loading Spinner Component ---
 const LoadingScreen = () => (
@@ -93,8 +91,6 @@ const App = () => {
             <Route path="/booking" element={<Booking />} />
             <Route path="/my-bookings" element={<MyBookings />} />
             <Route path="/payment" element={<Payment />} />
-            <Route path="/status" element={<ServerStatus />} />
-            <Route path="/server-status" element={<ServerStatus />} />
           </Route>
         </Route>
 
@@ -105,8 +101,9 @@ const App = () => {
             <Route path="/admin/users" element={<Users />} />
             <Route path="/admin/servers" element={<Servers />} />
             <Route path="/admin/time-slots" element={<TimeSlots />} />
+            <Route path="/admin/timeslots" element={<TimeSlots />} />
             <Route path="/admin/bookings" element={<Bookings />} />
-            <Route path="/admin/payments" element={<Payments />} />
+            <Route path="/admin/payments" element={<Navigate to="/admin/bookings" replace />} />
           </Route>
         </Route>
 

@@ -1,0 +1,6 @@
+[Unit]
+Description=MC slot scheduler tick
+[Service]
+TimeoutStartSec=1200
+Type=oneshot
+ExecStart=/usr/local/bin/mcslot-tick

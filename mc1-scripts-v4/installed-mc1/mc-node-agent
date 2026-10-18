@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""
+mc-node-agent: รับคำสั่ง start/stop/restart จากหน้าแอดมิน (ผ่าน backend) แล้วสั่งโหนดจริง
+รันค้างเป็น systemd service บน MC1 (root) ใช้ ssh key และ nodes.json เดียวกับ mcslot
+"""
+import json, shlex, subprocess, time, urllib.request, urllib.error
+
+D = "/etc/mc-slot"
+NODES = f"{D}/nodes.json"
+ACTIVE = f"{D}/active_booking.json"
+WEB = "http://127.0.0.1:5000/api/mc"
+SSH_KEY = "/root/.ssh/mcnode_key"
+LOCAL_HOSTS = {"", "localhost", "127.0.0.1", "local"}
+ACTIONS = {"start", "stop", "restart", "backup"}
+POLL_S = 3
+
+
+def log(*a):
+    print(*a, flush=True)
+
+
+def web(method, path, body=None):
+    key = open(f"{D}/web_key").read().strip()
+    req = urllib.request.Request(WEB + path, method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"X-MC-Key": key, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        raw = r.read()
+        return json.loads(raw) if raw else None
+
+
+def load_nodes():
+    nodes = json.load(open(NODES, encoding="utf-8"))
+    items = nodes.items() if isinstance(nodes, dict) else [(n.get("id"), n) for n in nodes]
+    return {str(k): v for k, v in items if isinstance(v, dict)}
+
+
+def run_on(node, cmd, timeout):
+    """cmd เป็นคำสั่ง systemctl เดี่ยว ๆ (รันเป็น root บน MC1 หรือผ่าน sudo บนโหนดอื่น)"""
+    host = str(node.get("host") or "").strip()
+    if host in LOCAL_HOSTS:
+        args = ["bash", "-c", cmd]
+    else:
+        user = node.get("user")
+        target = f"{user}@{host}" if user else host
+        args = ["ssh", "-i", SSH_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                target, "sudo " + cmd]
+    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+
+
+def active_slot_server():
+    """server_id ของ slot ลูกค้าที่ tick เปิดอยู่ (ถ้าไฟล์บอกไว้) ใช้กันซ้อนกับ backend"""
+    try:
+        a = json.load(open(ACTIVE))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    if isinstance(a, dict) and a.get("server_id") is not None:
+        return str(a["server_id"])
+    return None
+
+
+def execute(cmd, nodes):
+    sid, action = str(cmd.get("server_id")), cmd.get("action")
+    if action not in ACTIONS:
+        return False, f"ไม่รองรับคำสั่ง {action}"
+    node = nodes.get(sid)
+    if not node:
+        return False, f"ไม่พบ server_id {sid} ใน nodes.json"
+
+    if action == "backup":
+        try:
+            r = subprocess.run(["/usr/local/bin/mc-backup", sid],
+                               capture_output=True, text=True, timeout=300)
+            lines = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+            if r.returncode == 0:
+                msg = lines[-1] if lines else f"สำรองข้อมูล {node.get('name', sid)} สำเร็จ"
+                return True, msg
+            else:
+                err = (r.stderr.strip().splitlines() or lines or ["ไม่ทราบสาเหตุ"])[-1]
+                return False, f"สำรองข้อมูลล้มเหลว: {err}"
+        except subprocess.TimeoutExpired:
+            return False, "การสำรองข้อมูลใช้เวลานานเกิน 5 นาที"
+
+    svc = node.get("service")
+    if not svc:
+        return False, "nodes.json ไม่ได้ระบุ service ของเครื่องนี้"
+    if action in ("stop", "restart") and not cmd.get("force") and active_slot_server() == sid:
+        return False, "มี slot ของลูกค้าเปิดอยู่บนเครื่องนี้ (ต้องยืนยันแบบ force)"
+
+    q = shlex.quote(svc)
+    try:
+        r = run_on(node, f"systemctl {action} {q}", timeout=180)
+    except subprocess.TimeoutExpired:
+        return False, f"systemctl {action} {svc} ใช้เวลานานเกิน 3 นาที"
+    if r.returncode != 0:
+        err = (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1]
+        return False, f"systemctl {action} {svc} ล้มเหลว: {err}"
+    if action == "stop":
+        return True, f"หยุด {svc} แล้ว"
+
+    for _ in range(10):
+        time.sleep(2)
+        try:
+            state = run_on(node, f"systemctl is-active {q}", timeout=20).stdout.strip()
+        except subprocess.TimeoutExpired:
+            state = "unknown"
+        if state == "active":
+            return True, f"{svc} ทำงานแล้ว (ตัวเกมอาจใช้เวลาโหลดอีกสักพัก)"
+        if state == "failed":
+            return False, f"{svc} เปิดไม่ขึ้น (failed) ดูสาเหตุด้วย journalctl -u {svc}"
+    return False, f"{svc} ยังไม่ active หลังรอ 20 วินาที"
+
+
+def refresh_health():
+    subprocess.run(["systemctl", "start", "--no-block", "mc-node-health.service"],
+                   capture_output=True)
+
+
+def main():
+    log("mc-node-agent เริ่มทำงาน")
+    down = False
+    while True:
+        try:
+            cmds = web("GET", "/commands/next") or []
+            if down:
+                log("ติดต่อเว็บได้แล้ว")
+                down = False
+        except Exception as e:
+            if not down:
+                log("ติดต่อเว็บไม่ได้ จะลองใหม่เรื่อย ๆ:", e)
+                down = True
+            cmds = []
+
+        if cmds:
+            try:
+                nodes = load_nodes()
+            except Exception as e:
+                nodes = {}
+                log("อ่าน nodes.json ไม่ได้:", e)
+            for c in cmds:
+                log(f"คำสั่ง #{c.get('id')}: {c.get('action')} server {c.get('server_id')}"
+                    + (" (force)" if c.get("force") else ""))
+                try:
+                    ok, msg = execute(c, nodes)
+                except Exception as e:
+                    ok, msg = False, f"agent error: {e}"
+                log(("สำเร็จ: " if ok else "ล้มเหลว: ") + msg)
+                try:
+                    web("POST", f"/commands/{c['id']}/result", {"ok": ok, "message": msg})
+                except Exception as e:
+                    log("ส่งผลให้เว็บไม่ได้:", e)
+            refresh_health()
+        time.sleep(POLL_S)
+
+
+if __name__ == "__main__":
+    main()

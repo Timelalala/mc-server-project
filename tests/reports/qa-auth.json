@@ -1,0 +1,28 @@
+{
+  "suite": "QA Authentication & Authorization Suite",
+  "timestamp": "2026-10-17T21:02:10.149Z",
+  "totalTests": 4,
+  "passedTests": 4,
+  "results": [
+    {
+      "test": "AUTH-01: สมัครสมาชิกใหม่ (Register)",
+      "status": "passed",
+      "detail": "สมัครสมาชิกผู้ใช้ qatest_mvcvu440 สำเร็จ (HTTP 201)"
+    },
+    {
+      "test": "AUTH-02: ป้องกันสมัครสมาชิกด้วย Username ซ้ำ",
+      "status": "passed",
+      "detail": "ระบบปฏิเสธการลงทะเบียนซ้ำด้วย status 400"
+    },
+    {
+      "test": "AUTH-03: เข้าสู่ระบบด้วยข้อมูลถูกต้อง",
+      "status": "passed",
+      "detail": "เข้าสู่ระบบสำเร็จและได้รับ JWT Access Token"
+    },
+    {
+      "test": "AUTH-06: ป้องกัน Endpoint โดยไม่มี Token",
+      "status": "passed",
+      "detail": "ระบบรักษาความปลอดภัย ปฏิเสธคำขอที่ไม่มี JWT ด้วย HTTP 401"
+    }
+  ]
+}

@@ -19,7 +19,6 @@ const Navbar = () => {
     { label: 'หน้าหลัก', path: '/' },
     { label: 'จองเซิฟเวอร์', path: '/booking' },
     { label: 'การจองของฉัน', path: '/my-bookings' },
-    { label: 'สถานะเซิฟเวอร์', path: '/status' },
   ];
 
   const isActive = (path) => location.pathname === path;

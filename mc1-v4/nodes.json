@@ -1,0 +1,25 @@
+{
+ "1": {
+  "name": "Java Survival (MC1)",
+  "host": "local",
+  "service": "minecraft",
+  "dir": "/media/admin/01DD0E0A2A61B090/mcserver",
+  "port": 25565,
+  "rcon_port": 25575,
+  "admin_world": "world",
+  "bossbar": true,
+  "start_timeout": 300
+ },
+ "2": {
+  "name": "RLCraft (MC2)",
+  "host": "192.168.137.11",
+  "user": "mc2",
+  "service": "rlcraft",
+  "dir": "/media/mc2/01DD2803FE1F4CE0/rlcraft",
+  "port": 25566,
+  "rcon_port": 25576,
+  "admin_world": "World",
+  "bossbar": false,
+  "start_timeout": 900
+ }
+}

@@ -47,15 +47,85 @@ const runPiSSHCommand = async (serverId, command) => {
   }
 };
 
+const HEARTBEAT_WINDOW_MS = 3 * 60 * 1000; // 3 minutes
+
 exports.getServers = async (req, res) => {
   try {
     const [servers] = await db.query('SELECT * FROM servers');
-    res.json(servers);
+
+    // 1. Check if the host machine (MC1) has sent a heartbeat within the last 3 minutes
+    const isHostOnline = Boolean(
+      global.lastMcHeartbeat && (Date.now() - global.lastMcHeartbeat <= HEARTBEAT_WINDOW_MS)
+    );
+
+    // 2. Query active bookings to get player counts for any running slots
+    const [activeBookings] = await db.query(`
+      SELECT server_id, slot_status, online_players 
+      FROM bookings 
+      WHERE slot_status IN ('started', 'online')
+      ORDER BY id DESC
+    `);
+
+    // Group active bookings by server_id
+    const activeBookingByServer = {};
+    for (const b of activeBookings) {
+      if (!activeBookingByServer[b.server_id]) {
+        activeBookingByServer[b.server_id] = [];
+      }
+      activeBookingByServer[b.server_id].push(b);
+    }
+
+    const result = servers.map(server => {
+      // Java Survival (MC1) is always online and in standby mode waiting for bookings
+      const isJavaSurvival = server.id === 1 || server.name === 'Java Survival';
+      const isOnline = isJavaSurvival || isHostOnline;
+
+      if (!isOnline) {
+        return {
+          ...server,
+          status: 'offline',
+          current_players: 0,
+          session_count: 0
+        };
+      }
+
+      // If host machine is online (heartbeat within 3 mins):
+      // Server is online; calculate player count from running slot if any
+      const bookingsForServer = activeBookingByServer[server.id];
+      let playerCount = 0;
+      if (bookingsForServer && bookingsForServer.length > 0) {
+        const uniquePlayers = new Set();
+        for (const b of bookingsForServer) {
+          try {
+            const players = typeof b.online_players === 'string'
+              ? JSON.parse(b.online_players)
+              : (Array.isArray(b.online_players) ? b.online_players : []);
+            if (Array.isArray(players)) {
+              players.forEach(p => {
+                if (p) uniquePlayers.add(p);
+              });
+            }
+          } catch (e) {}
+        }
+        playerCount = uniquePlayers.size;
+      }
+
+      return {
+        ...server,
+        status: 'online',
+        current_players: playerCount,
+        session_count: playerCount
+      };
+    });
+
+    res.json(result);
   } catch (err) {
     console.error('getServers error:', err);
     res.status(500).json({ message: 'Error retrieving servers.' });
   }
 };
+
+const { BLOCK_SCOPE, MIN_MINUTES_LEFT } = require('../config/bookingConstants');
 
 exports.getSlots = async (req, res) => {
   const { id } = req.params;
@@ -66,15 +136,13 @@ exports.getSlots = async (req, res) => {
   }
 
   try {
-    // Check if slots exist for this date. If not, automatically seed default slots for this day.
-    // Standard time slots: 09:00-11:00, 11:00-13:00, 13:00-15:00, 15:00-17:00, 17:00-19:00, 19:00-21:00, 21:00-23:00
-    const [existingSlots] = await db.query(
-      'SELECT * FROM time_slots WHERE server_id = ? AND date = ?',
+    // 1. Check if slots exist for this date. If not, automatically seed default slots for this day.
+    let [slots] = await db.query(
+      'SELECT * FROM time_slots WHERE server_id = ? AND date = ? ORDER BY time_start ASC',
       [id, date]
     );
 
-    if (existingSlots.length === 0) {
-      // Seed default slots
+    if (slots.length === 0) {
       const defaultSlots = [
         ['09:00:00', '11:00:00'],
         ['11:00:00', '13:00:00'],
@@ -92,17 +160,167 @@ exports.getSlots = async (req, res) => {
         );
       }
 
-      const [newSlots] = await db.query(
-        'SELECT * FROM time_slots WHERE server_id = ? AND date = ?',
+      [slots] = await db.query(
+        'SELECT * FROM time_slots WHERE server_id = ? AND date = ? ORDER BY time_start ASC',
         [id, date]
       );
-      return res.json(newSlots);
     }
 
-    res.json(existingSlots);
+    // 2. Query all PAID/CONFIRMED bookings overlapping with this date
+    // กติกา:
+    // - การจองที่ยังไม่ชำระ (pending) ไม่ทำให้ช่องเต็ม
+    // - การจองที่ชำระแล้ว (paid / confirmed) ทำให้เต็ม
+    // - ถ้า BLOCK_SCOPE === 'all' จะเต็มทุกเซิร์ฟเวอร์ (ไม่กรอง b.server_id = ?)
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    let bookingQuery = `
+      SELECT b.id, b.server_id, b.start_time, b.end_time, b.payment_status, b.status, b.booking_type 
+      FROM bookings b
+      LEFT JOIN users u ON b.user_id = u.id
+      WHERE (u.role IS NULL OR u.role != 'admin')
+        AND (b.payment_status = 'paid' OR b.status = 'confirmed')
+        AND b.start_time <= ? 
+        AND b.end_time >= ?`;
+    const queryParams = [endOfDay, startOfDay];
+
+    if (BLOCK_SCOPE !== 'all') {
+      bookingQuery += ' AND b.server_id = ?';
+      queryParams.push(id);
+    }
+
+    const [activeBookings] = await db.query(bookingQuery, queryParams);
+
+    // เวลาปัจจุบัน (อิงตามเวลาไทย)
+    const now = new Date();
+
+    // 3. คำนวณสถานะแต่ละ Time Slot ตามลำดับ 5 เงื่อนไข
+    const enrichedSlots = slots.map(slot => {
+      // แปลงเวลาเริ่มต้นและสิ้นสุดของ slot (Asia/Bangkok +07:00)
+      const slotStart = new Date(`${date}T${slot.time_start}+07:00`);
+      const slotEnd = new Date(`${date}T${slot.time_end}+07:00`);
+
+      // ตรวจสอบการชนกับ active bookings ที่ชำระแล้ว: slotStart < bEnd && slotEnd > bStart
+      const overlapping = activeBookings.find(b => {
+        const bStart = new Date(b.start_time);
+        const bEnd = new Date(b.end_time);
+        return slotStart < bEnd && slotEnd > bStart;
+      });
+
+      const isOngoing = slotStart <= now && slotEnd > now;
+      const minutesLeft = isOngoing ? Math.floor((slotEnd - now) / 60000) : 0;
+
+      // ลำดับที่ 1: หมดเวลา (slotEnd <= now) -> กดไม่ได้
+      if (slotEnd <= now) {
+        return {
+          ...slot,
+          status: 'expired',
+          label: 'หมดเวลา',
+          canBook: false
+        };
+      }
+
+      // ลำดับที่ 2: เต็ม (มีจองที่ชำระแล้วทับช่วงเวลาตาม BLOCK_SCOPE) -> กดไม่ได้
+      if (overlapping || slot.status === 'booked') {
+        return {
+          ...slot,
+          status: 'booked',
+          label: 'เต็มแล้ว',
+          canBook: false,
+          conflictBookingId: overlapping ? overlapping.id : slot.booking_id
+        };
+      }
+
+      // ลำดับที่ 3: เหลือน้อยเกินไป (เริ่มแล้วและเหลือ < 15 นาที) -> กดไม่ได้
+      if (isOngoing && minutesLeft < MIN_MINUTES_LEFT) {
+        return {
+          ...slot,
+          status: 'too_short',
+          label: 'เหลือน้อยกว่า 15 นาที',
+          canBook: false,
+          minutesLeft
+        };
+      }
+
+      // ลำดับที่ 4: กำลังดำเนินอยู่ (เริ่มแล้วแต่เหลือ >= 15 นาที) -> กดได้ แต่มี popup ยืนยัน
+      if (isOngoing && minutesLeft >= MIN_MINUTES_LEFT) {
+        return {
+          ...slot,
+          status: 'ongoing',
+          label: 'กำลังดำเนินอยู่',
+          canBook: true,
+          minutesLeft
+        };
+      }
+
+      // ลำดับที่ 5: ว่าง -> กดได้ปกติ
+      return {
+        ...slot,
+        status: 'available',
+        label: 'ว่าง',
+        canBook: true
+      };
+    });
+
+    res.json(enrichedSlots);
   } catch (err) {
     console.error('getSlots error:', err);
     res.status(500).json({ message: 'Error retrieving slots.' });
+  }
+};
+
+// GET /api/servers/busy-dates
+// ดึงวันที่ถูกจองเต็มทั้งวันหรือมีช่วงเวลาทับซ้อน (ตาม BLOCK_SCOPE)
+exports.getBusyDates = async (req, res) => {
+  try {
+    const { serverId } = req.query;
+
+    let query = `
+      SELECT b.id, b.server_id, b.booking_type,
+             DATE_FORMAT(b.start_time, '%Y-%m-%d') as start_date,
+             DATE_FORMAT(b.end_time, '%Y-%m-%d') as end_date,
+             b.start_time, b.end_time
+      FROM bookings b
+      LEFT JOIN users u ON b.user_id = u.id
+      WHERE (u.role IS NULL OR u.role != 'admin')
+        AND (b.payment_status = 'paid' OR b.status = 'confirmed')
+        AND b.end_time > NOW()
+    `;
+    const params = [];
+    if (BLOCK_SCOPE !== 'all' && serverId) {
+      query += ' AND b.server_id = ?';
+      params.push(serverId);
+    }
+
+    const [rows] = await db.query(query, params);
+
+    const fullBookedDates = new Set();
+    for (const r of rows) {
+      if (r.booking_type === 'fullday' || r.booking_type === 'multiday') {
+        const start = new Date(r.start_date);
+        const end = new Date(r.end_date);
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          fullBookedDates.add(`${yyyy}-${mm}-${dd}`);
+        }
+      }
+    }
+
+    res.json({
+      fullBookedDates: Array.from(fullBookedDates),
+      busyRanges: rows.map(r => ({
+        id: r.id,
+        serverId: r.server_id,
+        startDate: r.start_date,
+        endDate: r.end_date,
+        type: r.booking_type
+      }))
+    });
+  } catch (err) {
+    console.error('getBusyDates error:', err);
+    res.status(500).json({ message: 'Error retrieving busy dates.' });
   }
 };
 

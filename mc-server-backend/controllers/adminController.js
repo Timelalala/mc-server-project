@@ -23,11 +23,41 @@ exports.getStats = async (req, res) => {
 
 exports.getUsers = async (req, res) => {
   try {
-    const [users] = await db.query('SELECT id, username, email, role, created_at FROM users');
+    const [users] = await db.query(`
+      SELECT 
+        u.id, u.username, u.email, u.role, 
+        COALESCE(u.status, 'active') AS status, 
+        u.created_at,
+        (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS booking_count
+      FROM users u
+      ORDER BY u.id ASC
+    `);
     res.json(users);
   } catch (err) {
     console.error('getUsers error:', err);
     res.status(500).json({ message: 'Error retrieving user list.' });
+  }
+};
+
+exports.suspendUser = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await db.query('SELECT status, role FROM users WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'ไม่พบผู้ใช้งาน' });
+    }
+    if (rows[0].role === 'admin') {
+      return res.status(400).json({ message: 'ไม่สามารถระงับบัญชี Admin ได้' });
+    }
+
+    const currentStatus = rows[0].status || 'active';
+    const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+
+    await db.query('UPDATE users SET status = ? WHERE id = ?', [newStatus, id]);
+    res.json({ message: `เปลี่ยนสถานะเป็น ${newStatus}`, status: newStatus });
+  } catch (err) {
+    console.error('suspendUser error:', err);
+    res.status(500).json({ message: 'Server error during account suspension.' });
   }
 };
 
@@ -151,31 +181,174 @@ exports.verifyPayment = async (req, res) => {
   }
 };
 
-exports.addSlot = async (req, res) => {
-  const { server_id, date, time_start, time_end } = req.body;
-  if (!server_id || !date || !time_start || !time_end) {
-    return res.status(400).json({ message: 'All slot details (server_id, date, time_start, time_end) are required.' });
-  }
+// Time Slots API Endpoints
+exports.getAllTimeSlots = async (req, res) => {
   try {
-    await db.query(
-      'INSERT INTO time_slots (server_id, date, time_start, time_end, status) VALUES (?, ?, ?, ?, "available")',
-      [server_id, date, time_start, time_end]
-    );
-    res.status(201).json({ message: 'Time slot added successfully.' });
+    const [rows] = await db.query(`
+      SELECT ts.*, s.name AS server_name
+      FROM time_slots ts
+      JOIN servers s ON ts.server_id = s.id
+      ORDER BY ts.date DESC, ts.time_start ASC
+    `);
+    res.json(rows);
   } catch (err) {
-    console.error('addSlot error:', err);
+    console.error('getAllTimeSlots error:', err);
+    res.status(500).json({ message: 'Error fetching time slots list.' });
+  }
+};
+
+exports.createTimeSlot = async (req, res) => {
+  const { serverId, server_id, date, timeStart, time_start, timeEnd, time_end } = req.body;
+  const targetServerId = serverId || server_id;
+  const targetTimeStart = timeStart || time_start;
+  const targetTimeEnd = timeEnd || time_end;
+
+  if (!targetServerId || !date || !targetTimeStart || !targetTimeEnd) {
+    return res.status(400).json({ message: 'กรุณากรอกข้อมูลช่วงเวลาให้ครบถ้วน (serverId, date, timeStart, timeEnd)' });
+  }
+
+  if (targetTimeEnd <= targetTimeStart) {
+    return res.status(400).json({ message: 'เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้น' });
+  }
+
+  try {
+    // Check overlap with existing slots on the same server & date
+    const [overlapSlots] = await db.query(
+      `SELECT id, time_start, time_end FROM time_slots 
+       WHERE server_id = ? AND date = ? 
+       AND time_start < ? AND time_end > ?`,
+      [targetServerId, date, targetTimeEnd, targetTimeStart]
+    );
+
+    if (overlapSlots.length > 0) {
+      const conflict = overlapSlots[0];
+      return res.status(409).json({ 
+        message: `ช่วงเวลานี้ชนกับ Slot ที่มีอยู่แล้ว (${conflict.time_start.slice(0, 5)} - ${conflict.time_end.slice(0, 5)})` 
+      });
+    }
+
+    const [result] = await db.query(
+      'INSERT INTO time_slots (server_id, date, time_start, time_end, status) VALUES (?, ?, ?, ?, "available")',
+      [targetServerId, date, targetTimeStart, targetTimeEnd]
+    );
+    res.status(201).json({ id: result.insertId, message: 'เพิ่มช่วงเวลาสำเร็จ' });
+  } catch (err) {
+    console.error('createTimeSlot error:', err);
     res.status(500).json({ message: 'Error adding time slot.' });
   }
 };
 
-exports.deleteSlot = async (req, res) => {
+exports.addSlot = exports.createTimeSlot;
+
+// Bulk generate time slots for a day
+exports.createBulkTimeSlots = async (req, res) => {
+  const { serverId, date, startHour = 8, endHour = 24, slotDurationHours = 2 } = req.body;
+
+  if (!serverId || !date) {
+    return res.status(400).json({ message: 'กรุณาระบุ Server ID และวันที่' });
+  }
+
+  const sHour = Number(startHour);
+  const eHour = Number(endHour);
+  const duration = Number(slotDurationHours);
+
+  if (sHour >= eHour || duration <= 0) {
+    return res.status(400).json({ message: 'ช่วงเวลาหรือระยะเวลาของแต่ละ Slot ไม่ถูกต้อง' });
+  }
+
+  try {
+    // Fetch existing slots on this server & date
+    const [existing] = await db.query(
+      'SELECT time_start, time_end FROM time_slots WHERE server_id = ? AND date = ?',
+      [serverId, date]
+    );
+
+    let createdCount = 0;
+    let skippedCount = 0;
+
+    for (let h = sHour; h + duration <= eHour; h += duration) {
+      const tStart = `${String(h).padStart(2, '0')}:00:00`;
+      const tEnd = `${String(h + duration).padStart(2, '0')}:00:00`;
+
+      // Check overlap
+      const hasOverlap = existing.some(slot => slot.time_start < tEnd && slot.time_end > tStart);
+      if (hasOverlap) {
+        skippedCount++;
+        continue;
+      }
+
+      await db.query(
+        'INSERT INTO time_slots (server_id, date, time_start, time_end, status) VALUES (?, ?, ?, ?, "available")',
+        [serverId, date, tStart, tEnd]
+      );
+      createdCount++;
+    }
+
+    res.json({
+      message: `สร้าง Time Slot สำเร็จ ${createdCount} รายการ (ข้ามรายการที่ชนกัน ${skippedCount} รายการ)`,
+      createdCount,
+      skippedCount
+    });
+  } catch (err) {
+    console.error('createBulkTimeSlots error:', err);
+    res.status(500).json({ message: 'Error bulk creating time slots.' });
+  }
+};
+
+exports.deleteTimeSlot = async (req, res) => {
   const { id } = req.params;
   try {
+    const [rows] = await db.query('SELECT status FROM time_slots WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'ไม่พบช่วงเวลาดังกล่าว' });
+    }
+    if (rows[0].status !== 'available') {
+      return res.status(400).json({ message: 'ลบไม่ได้ เพราะมีการจองแล้ว' });
+    }
+
     await db.query('DELETE FROM time_slots WHERE id = ?', [id]);
-    res.json({ message: 'Time slot deleted successfully.' });
+    res.json({ message: 'ลบสำเร็จ' });
   } catch (err) {
-    console.error('deleteSlot error:', err);
+    console.error('deleteTimeSlot error:', err);
     res.status(500).json({ message: 'Error deleting time slot.' });
   }
 };
+
+exports.deleteSlot = exports.deleteTimeSlot;
+
+// Update Pricing Rule
+exports.updatePricingRule = async (req, res) => {
+  const { id } = req.params;
+  const { price, duration_hours, is_active } = req.body;
+
+  try {
+    const fields = [];
+    const values = [];
+
+    if (price !== undefined) {
+      fields.push('price = ?');
+      values.push(Number(price));
+    }
+    if (duration_hours !== undefined) {
+      fields.push('duration_hours = ?');
+      values.push(Number(duration_hours));
+    }
+    if (is_active !== undefined) {
+      fields.push('is_active = ?');
+      values.push(Boolean(is_active));
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ message: 'ไม่มีข้อมูลที่ต้องอัปเดต' });
+    }
+
+    values.push(id);
+    await db.query(`UPDATE pricing_rules SET ${fields.join(', ')} WHERE id = ?`, values);
+    res.json({ message: 'อัปเดตกฎราคาสำเร็จ' });
+  } catch (err) {
+    console.error('updatePricingRule error:', err);
+    res.status(500).json({ message: 'Error updating pricing rule.' });
+  }
+};
+
 

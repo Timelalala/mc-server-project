@@ -1,0 +1,18 @@
+{
+  "name": "mc-server-project-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Integration and E2E Tests for Minecraft Booking System",
+  "type": "module",
+  "scripts": {
+    "test:api": "node --test tests/api/booking-rules.test.mjs",
+    "test:e2e": "npx playwright test tests/e2e/booking.spec.js",
+    "report": "node tests/build-report.mjs"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

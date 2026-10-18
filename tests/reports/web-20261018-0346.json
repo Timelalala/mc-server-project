@@ -1,0 +1,15 @@
+{
+  "suite": "E2E Web Booking UI Test Suite",
+  "timestamp": "2026-10-17T20:46:19.844Z",
+  "viewport": "390x844 (Mobile)",
+  "totalTests": 1,
+  "passedTests": 1,
+  "results": [
+    {
+      "test": "6. ขนาดมือถือ 390×844 ไม่ล้นจอ",
+      "status": "passed",
+      "screen": "web-07-mobile-viewport-390x844.png",
+      "detail": "ตรวจสอบ document.documentElement.scrollWidth ไม่เกินความกว้างหน้าจอ 390px"
+    }
+  ]
+}

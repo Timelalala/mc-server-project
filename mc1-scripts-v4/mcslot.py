@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""mcslot v4 (MC1) - รองรับ VPS แยกต่อ server (แบบ B)
+- เปิดได้ทีละรอบทั้งระบบ (current.json ไฟล์เดียว)
+- แต่ละ node มี droplet_id ของตัวเอง: Reserved IP ของรอบนั้นถูกผูกกับ VPS ของ node
+- node ที่ static_route=true: ทราฟฟิกจาก VPS ของ node วิ่ง wgN -> MC1 -> node ผ่าน PREROUTING ถาวรใน wgN.conf
+  (ไม่เพิ่มกฎ DNAT ตามรอบอีก)
+- node ที่ static_route=false (MC1 เอง): ทราฟฟิกเข้า wg0 ที่พอร์ต 25565 เข้า Minecraft โดยตรง
+
+  sudo mcslot start <booking_id> <user_id> [server_id]
+  sudo mcslot end
+  sudo mcslot status
+  sudo mcslot players
+  sudo mcslot rcon "<command>"
+"""
+import datetime, json, os, re, shlex, socket, subprocess, sys, time, urllib.request, urllib.error
+
+DEFAULT_DROPLET = 606881424   # VPS#1 (MC1)
+D = "/etc/mc-slot"
+STATE = f"{D}/current.json"
+USED = f"{D}/used_ips.txt"
+NODES = f"{D}/nodes.json"
+MCRCON = "/media/admin/01DD0E0A2A61B090/mcserver/mcrcon/mcrcon"
+SSH_KEY = "/root/.ssh/mcnode_key"
+API = "https://api.digitalocean.com/v2"
+BAR = "mc:slot"
+
+
+def log(*a):
+    print(*a, flush=True)
+
+
+# ---------- DigitalOcean Reserved IP ----------
+def token():
+    return open(f"{D}/do_token").read().strip()
+
+
+def api(method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(API + path, data=data, method=method,
+                                 headers={"Authorization": "Bearer " + token(),
+                                          "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            raw = r.read()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        sys.exit(f"API error {e.code} {method} {path}: {e.read().decode()[:300]}")
+
+
+def used():
+    return set(open(USED).read().split()) if os.path.exists(USED) else set()
+
+
+def wait_assigned(ip, want, droplet):
+    for _ in range(40):
+        try:
+            d = api("GET", f"/reserved_ips/{ip}")["reserved_ip"].get("droplet")
+        except SystemExit as e:
+            if "404" in str(e):
+                time.sleep(3)
+                continue
+            raise
+        if (d is not None and d["id"] == droplet) if want else d is None:
+            return
+        time.sleep(3)
+    sys.exit(f"รอ {ip} นานเกินไป")
+
+
+def release(ip):
+    try:
+        cur = api("GET", f"/reserved_ips/{ip}")["reserved_ip"].get("droplet")
+    except SystemExit as e:
+        if "404" in str(e):
+            log("ไม่พบ", ip, "ในบัญชี (อาจคืนไปแล้ว)")
+            return
+        raise
+    if cur is not None:
+        api("POST", f"/reserved_ips/{ip}/actions", {"type": "unassign"})
+        wait_assigned(ip, False, None)
+    for _ in range(24):
+        req = urllib.request.Request(f"{API}/reserved_ips/{ip}", method="DELETE",
+                                     headers={"Authorization": "Bearer " + token()})
+        try:
+            urllib.request.urlopen(req, timeout=30)
+            return
+        except urllib.error.HTTPError as e:
+            if e.code != 422:
+                sys.exit(f"API error {e.code} DELETE {ip}: {e.read().decode()[:300]}")
+        time.sleep(5)
+    sys.exit(f"คืน {ip} ไม่สำเร็จภายใน 2 นาที")
+
+
+def quiet_release(ip):
+    try:
+        release(ip)
+    except SystemExit as e:
+        log("คืน", ip, "ไม่สำเร็จ ต้องคืนเอง:", e)
+
+
+def post_reserved_ip(droplet):
+    for i in range(6):
+        try:
+            return api("POST", "/reserved_ips", {"droplet_id": droplet})["reserved_ip"]["ip"]
+        except SystemExit as e:
+            if "422" in str(e) and i < 5:
+                log("DigitalOcean ยังไม่พร้อม (422) รอ 10 วินาทีแล้วลองใหม่")
+                time.sleep(10)
+                continue
+            raise
+
+
+def new_ip(droplet):
+    for _ in range(5):
+        ip = post_reserved_ip(droplet)
+        seen = ip in used()
+        with open(USED, "a") as f:
+            f.write(ip + "\n")
+        try:
+            wait_assigned(ip, True, droplet)
+        except BaseException:
+            quiet_release(ip)
+            raise
+        if not seen:
+            return ip
+        log(f"ได้ {ip} ซึ่งเคยใช้แล้ว คืนแล้วขอใหม่")
+        release(ip)
+    sys.exit("ขอ IP ที่ไม่ซ้ำไม่ได้ใน 5 ครั้ง")
+
+
+def wait_reachable(ip, limit=120):
+    t0 = time.time()
+    while time.time() - t0 < limit:
+        try:
+            with socket.create_connection((ip, 25565), timeout=5):
+                log(f"IP {ip} พร้อมใช้งาน ใช้เวลา {time.time() - t0:.0f} วินาที")
+                return True
+        except OSError:
+            time.sleep(3)
+    log(f"คำเตือน: {ip} ยังเชื่อมต่อจาก MC1 ไม่ได้ใน {limit} วินาที")
+    return False
+
+
+# ---------- nodes ----------
+def node(sid):
+    nodes = json.load(open(NODES))
+    n = nodes.get(str(sid))
+    if not n:
+        sys.exit(f"ไม่รู้จัก server_id {sid} ใน {NODES}")
+    n = dict(n)
+    n["id"] = str(sid)
+    n.setdefault("droplet_id", DEFAULT_DROPLET)
+    n.setdefault("static_route", False)
+    return n
+
+
+def is_remote(n):
+    return n.get("host", "local") != "local"
+
+
+def sh(n, cmd, input_text=None, check=True):
+    """Run a shell command on the node (locally as root, or over SSH)."""
+    if is_remote(n):
+        args = ["ssh", "-i", SSH_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                f"{n['user']}@{n['host']}", cmd]
+    else:
+        args = ["bash", "-c", cmd]
+    r = subprocess.run(args, input=input_text, capture_output=True, text=True, timeout=180)
+    if check and r.returncode != 0:
+        sys.exit(f"คำสั่งบน {n['name']} ล้มเหลว: {cmd}\n{r.stderr.strip()}")
+    return r
+
+
+def props_path(n):
+    return shlex.quote(f"{n['dir']}/server.properties")
+
+
+def read_props(n):
+    return sh(n, f"cat {props_path(n)}").stdout
+
+
+def prop(n, key):
+    for line in read_props(n).splitlines():
+        if line.startswith(key + "="):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def set_props(n, values):
+    out, seen = [], set()
+    for line in read_props(n).splitlines():
+        k = line.split("=", 1)[0]
+        if k in values:
+            out.append(f"{k}={values[k]}")
+            seen.add(k)
+        else:
+            out.append(line)
+    for k, v in values.items():
+        if k not in seen:
+            out.append(f"{k}={v}")
+    sh(n, f"cat > {props_path(n)}", input_text="\n".join(out) + "\n")
+
+
+def rcon(n, *cmds):
+    if "_pw" not in n:
+        n["_pw"] = prop(n, "rcon.password")
+    host = n["host"] if is_remote(n) else "127.0.0.1"
+    return subprocess.run([MCRCON, "-H", host, "-P", str(n["rcon_port"]), "-p", n["_pw"], *cmds],
+                          capture_output=True, text=True, timeout=30)
+
+
+def svc(n, action):
+    sudo = "sudo " if is_remote(n) else ""
+    return sh(n, f"{sudo}systemctl {action} {n['service']}", check=(action != "is-active"))
+
+
+def active(n):
+    return svc(n, "is-active").returncode == 0
+
+
+def wait_ready(n):
+    limit = int(n.get("start_timeout", 300))
+    host = n["host"] if is_remote(n) else "127.0.0.1"
+    t0 = time.time()
+    while time.time() - t0 < limit:
+        try:
+            with socket.create_connection((host, int(n["port"])), timeout=3):
+                pass
+            if rcon(n, "list").returncode == 0:
+                return time.time() - t0
+        except (OSError, subprocess.SubprocessError):
+            pass
+        time.sleep(5)
+    sys.exit(f"{n['name']} ไม่พร้อมภายใน {limit} วินาที")
+
+
+# ---------- forwarding on MC1 ----------
+def clear_route():
+    """ลบกฎ DNAT ตามรอบบน wg0 ที่ v3 เคยเพิ่ม (v4 ไม่สร้างกฎแบบนี้แล้ว แต่เผื่อค้างจากเวอร์ชันเก่า)"""
+    out = subprocess.run(["iptables", "-t", "nat", "-S", "PREROUTING"],
+                         capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        if "-i wg0" in line and "--dport 25565" in line and "-j DNAT" in line:
+            args = line.split()[2:]
+            subprocess.run(["iptables", "-t", "nat", "-D", "PREROUTING", *args], check=False)
+
+
+def route_to(n):
+    """node ที่ static_route=true ใช้กฎถาวรใน wgN.conf อยู่แล้ว จึงไม่ต้องเพิ่มกฎตามรอบ"""
+    clear_route()
+    if n.get("static_route"):
+        log(f"ทางเข้าของ {n['name']} ถูกส่งต่อถาวรผ่านอุโมงค์ของ node นี้แล้ว")
+
+
+# ---------- worlds ----------
+def players(n):
+    try:
+        text = rcon(n, "list").stdout
+    except subprocess.SubprocessError:
+        return []
+    text = re.sub(r"\x1b\[[0-9;]*m|\u00a7.", "", text)
+    if ":" not in text:
+        return []
+    names = [x.strip() for x in text.split(":", 1)[1].replace("\n", ",").split(",")]
+    return [x for x in names if re.fullmatch(r"[A-Za-z0-9_]{1,16}", x)]
+
+
+def open_world(n, user_id):
+    world = f"w-user-{int(user_id)}"
+    if active(n):
+        svc(n, "stop")
+    set_props(n, {"level-name": world, "white-list": "false", "enforce-whitelist": "false"})
+    svc(n, "start")
+    secs = wait_ready(n)
+    log(f"เปิดโลก {world} บน {n['name']} แล้ว ใช้เวลา {secs:.0f} วินาที")
+    return world
+
+
+def close_world(n):
+    if active(n):
+        try:
+            if n.get("bossbar"):
+                rcon(n, f"bossbar remove {BAR}")
+            rcon(n, "say Your slot has ended. Thank you for playing!")
+            for p in players(n):
+                rcon(n, f"kick {p} Your slot has ended")
+        except subprocess.SubprocessError:
+            pass
+        time.sleep(2)
+        svc(n, "stop")
+    set_props(n, {"level-name": n.get("admin_world", "world"), "white-list": "true", "enforce-whitelist": "true"})
+    clear_route()
+
+
+def current_node():
+    if os.path.exists(STATE):
+        return node(json.load(open(STATE)).get("server_id", "1"))
+    return node("1")
+
+
+# ---------- commands ----------
+def start(booking_id, user_id, server_id="1"):
+    if os.path.exists(STATE):
+        sys.exit("มี slot ทำงานอยู่แล้ว ต้องจบก่อนด้วย: sudo mcslot end")
+    n = node(server_id)
+    world = open_world(n, user_id)
+    try:
+        route_to(n)
+        ip = new_ip(n["droplet_id"])
+        wait_reachable(ip)
+    except BaseException:
+        close_world(n)
+        raise
+    json.dump({"ip": ip, "booking": str(booking_id), "user_id": int(user_id), "server_id": n["id"],
+               "node": n["name"], "droplet": n["droplet_id"], "world": world,
+               "start": datetime.datetime.now().isoformat(timespec="seconds")}, open(STATE, "w"))
+    log(f"เริ่ม slot แล้ว ({n['name']}, droplet {n['droplet_id']}) ให้ลูกค้าต่อที่ {ip}")
+
+
+def end():
+    if not os.path.exists(STATE):
+        sys.exit("ไม่มี slot ที่ทำงานอยู่")
+    s = json.load(open(STATE))
+    n = node(s.get("server_id", "1"))
+    close_world(n)
+    release(s["ip"])
+    os.remove(STATE)
+    log(f"จบ slot แล้ว ({n['name']}) คืน {s['ip']} เรียบร้อย")
+
+
+def main():
+    cmd = sys.argv[1:] or ["help"]
+    if cmd[0] == "start" and len(cmd) in (3, 4):
+        start(cmd[1], cmd[2], cmd[3] if len(cmd) == 4 else "1")
+    elif cmd[0] == "end":
+        end()
+    elif cmd[0] == "status":
+        print(json.load(open(STATE)) if os.path.exists(STATE) else "ไม่มี slot ทำงานอยู่")
+    elif cmd[0] == "players":
+        print("\n".join(players(current_node())))
+    elif cmd[0] == "rcon" and len(cmd) > 1:
+        r = rcon(current_node(), *cmd[1:])
+        print(r.stdout, end="")
+        sys.exit(r.returncode)
+    else:
+        print(__doc__)
+
+
+main()

@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ตัวอย่างระบบจองเซิร์ฟเวอร์ - Time Slot, ทั้งวัน, หลายวัน (Mockup)</title>
+  <!-- Google Fonts: Prompt & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Prompt', 'Outfit', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              dark: '#0f0f1a',
+              card: '#1a1a2e',
+              border: '#2A2A3A',
+              purple: '#7C3AED',
+              purpleDeep: '#4C1D95',
+              green: '#6ee7b7',
+              red: '#f87171',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0c0c16;
+      color: #E2E8F0;
+      font-family: 'Prompt', sans-serif;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f0f1a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #2A2A3A;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #7C3AED;
+    }
+    .glow-purple {
+      box-shadow: 0 0 20px -3px rgba(124, 58, 237, 0.45);
+    }
+    .glow-green {
+      box-shadow: 0 0 15px -3px rgba(110, 231, 183, 0.3);
+    }
+    .badge-past {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+    .badge-booked {
+      background: rgba(100, 116, 139, 0.18);
+      border: 1px solid rgba(100, 116, 139, 0.35);
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-purple-600 selection:text-white">
+
+  <!-- ========================================== -->
+  <!-- 🎛️ SIMULATION CONTROLLER (แถบทดสอบเวลา)     -->
+  <!-- ========================================== -->
+  <div class="bg-gradient-to-r from-[#17102b] via-[#24133b] to-[#121124] border-b border-purple-500/30 sticky top-0 z-50 px-4 py-3 shadow-2xl backdrop-blur-md">
+    <div class="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-3">
+      
+      <!-- Left info -->
+      <div class="flex items-center gap-3 w-full lg:w-auto">
+        <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-purple-500/20 text-purple-300 font-bold text-sm shrink-0">
+          ⚡
+        </span>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-sm text-purple-200">แถบจำลองเวลาและเงื่อนไขทดสอบ</span>
+            <span class="text-[10px] bg-purple-900/60 text-purple-300 border border-purple-500/40 px-2 py-0.5 rounded-full font-medium">Mockup HTML</span>
+          </div>
+          <div class="text-xs text-purple-300/80 flex flex-wrap items-center gap-2 mt-0.5">
+            <span>เวลาจำลอง:</span>
+            <span id="currentSimDisplay" class="font-mono font-bold text-yellow-300 bg-black/40 px-2 py-0.5 rounded border border-yellow-500/30">
+              -
+            </span>
+            <span id="simStatusPill" class="text-[11px] font-semibold px-2 py-0.5 rounded-full"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Scenario Switcher -->
+      <div class="flex flex-wrap items-center gap-2 text-xs w-full lg:w-auto justify-start lg:justify-end">
+        <span class="text-white/50 text-[11px] mr-1 hidden sm:inline">จำลองสถานการณ์:</span>
+        
+        <!-- Scenario A: Afternoon 14:30 -->
+        <button onclick="setSimTime('2026-10-09T14:30:00')" 
+          class="sim-btn px-2.5 py-1.5 rounded-lg border border-purple-500/30 bg-purple-950/40 hover:bg-purple-800/40 text-purple-200 font-medium transition-all flex items-center gap-1.5">
+          <span>☀️</span>
+          <span>14:30 น. (บ่าย)</span>
+        </button>
+
+        <!-- Scenario B: Evening 17:00 (5 โมงเย็น - ตัวอย่างที่ระบุ!) -->
+        <button onclick="setSimTime('2026-10-09T17:00:00')" 
+          class="sim-btn px-2.5 py-1.5 rounded-lg border border-purple-500/40 bg-purple-800/40 hover:bg-purple-700/50 text-white font-bold transition-all flex items-center gap-1.5 ring-1 ring-purple-400">
+          <span>🌇</span>
+          <span>17:00 น. (5 โมง ตัดช่วงก่อนหน้า)</span>
+        </button>
+
+        <!-- Scenario C: Night 21:30 -->
+        <button onclick="setSimTime('2026-10-09T21:30:00')" 
+          class="sim-btn px-2.5 py-1.5 rounded-lg border border-purple-500/30 bg-purple-950/40 hover:bg-purple-800/40 text-purple-200 font-medium transition-all flex items-center gap-1.5">
+          <span>🌙</span>
+          <span>21:30 น. (เหลือรอบท้าย)</span>
+        </button>
+
+        <!-- Scenario D: Cutoff 23:15 (เลย 5 ทุ่ม) -->
+        <button onclick="setSimTime('2026-10-09T23:15:00')" 
+          class="sim-btn px-2.5 py-1.5 rounded-lg border border-amber-500/50 bg-amber-950/40 hover:bg-amber-800/40 text-amber-200 font-bold transition-all flex items-center gap-1.5 ring-1 ring-amber-500/40">
+          <span>🛑</span>
+          <span>23:15 น. (ตัดรอบวัน)</span>
+        </button>
+
+        <!-- Scenario E: Real Clock -->
+        <button onclick="useRealClock()" 
+          class="sim-btn px-2.5 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-950/30 hover:bg-emerald-800/40 text-emerald-200 font-medium transition-all flex items-center gap-1.5">
+          <span>⏱️</span>
+          <span>นาฬิกาจริง</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Realtime Rule banner -->
+  <div id="ruleBanner" class="bg-[#121324] border-b border-[#2A2A3A] px-4 py-2.5 text-xs text-center transition-colors">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 🌐 NAVIGATION BAR                          -->
+  <!-- ========================================== -->
+  <nav class="bg-[#0f0f1a] border-b border-[#2A2A3A]/80 px-6 py-4">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      
+      <!-- Brand Logo -->
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#4C1D95] flex items-center justify-center font-black text-white text-sm shadow-lg shadow-purple-500/20 tracking-wider">
+          MC
+        </div>
+        <span class="font-extrabold text-lg text-white tracking-wide">MC Server</span>
+      </div>
+
+      <!-- Center Nav Links -->
+      <div class="hidden md:flex items-center gap-8 text-sm font-semibold">
+        <a href="#" class="text-white/60 hover:text-white transition">หน้าหลัก</a>
+        <a href="#" class="text-white relative pb-1 border-b-2 border-[#7C3AED]">จองเซิร์ฟเวอร์</a>
+        <a href="#" class="text-white/60 hover:text-white transition">การจองของฉัน</a>
+        <a href="#" class="text-white/60 hover:text-white transition">สถานะเซิร์ฟเวอร์</a>
+      </div>
+
+      <!-- User Avatar -->
+      <div class="flex items-center gap-2.5 bg-[#1a1a2e] border border-[#2A2A3A] py-1.5 px-3 rounded-full">
+        <div class="w-6 h-6 rounded-full bg-[#7C3AED] flex items-center justify-center text-white text-xs font-bold">
+          U
+        </div>
+        <span class="text-xs font-bold text-white/90">user2</span>
+      </div>
+
+    </div>
+  </nav>
+
+  <!-- ========================================== -->
+  <!-- 🎮 MAIN BOOKING PAGE CONTENT               -->
+  <!-- ========================================== -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex-1 w-full space-y-6">
+
+    <!-- Header Section -->
+    <div class="space-y-1">
+      <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-wide">จองเซิร์ฟเวอร์</h1>
+      <p id="pageSubTitle" class="text-xs sm:text-sm text-[#a78bfa] font-semibold">
+        Java Survival — เลือกรูปแบบการจองและเวลาที่ต้องการ
+      </p>
+    </div>
+
+    <!-- 3 MODE TABS (Time Slot / จองทั้งวัน / จองหลายวัน) -->
+    <div class="bg-[#1a1a2e] border border-[#2A2A3A] rounded-2xl p-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2 shadow-lg">
+      
+      <!-- Tab 1: Time Slot -->
+      <button onclick="switchMode('timeslot')" id="tab-timeslot"
+        class="mode-tab py-3 px-4 rounded-xl font-bold text-sm transition-all flex flex-col items-center justify-center border bg-[#4C1D95] border-[#7C3AED] text-white shadow-lg">
+        <span class="text-base mb-0.5">⏰ เลือก Time Slot</span>
+        <span class="text-[11px] font-medium opacity-80">฿50 / ช่อง (2 ชม.)</span>
+      </button>
+
+      <!-- Tab 2: Full Day -->
+      <button onclick="switchMode('fullday')" id="tab-fullday"
+        class="mode-tab py-3 px-4 rounded-xl font-bold text-sm transition-all flex flex-col items-center justify-center border bg-[#0f0f1a] border-[#2A2A3A] text-white/60 hover:text-white hover:border-[#7C3AED]/50">
+        <span class="text-base mb-0.5">📅 จองทั้งวัน</span>
+        <span class="text-[11px] font-medium opacity-80">฿200 / วัน (24 ชม.)</span>
+      </button>
+
+      <!-- Tab 3: Multi Day -->
+      <button onclick="switchMode('multiday')" id="tab-multiday"
+        class="mode-tab py-3 px-4 rounded-xl font-bold text-sm transition-all flex flex-col items-center justify-center border bg-[#0f0f1a] border-[#2A2A3A] text-white/60 hover:text-white hover:border-[#7C3AED]/50">
+        <span class="text-base mb-0.5">🗓️ จองหลายวัน</span>
+        <span class="text-[11px] font-medium opacity-80">฿180 / วัน (ประหยัดกว่า)</span>
+      </button>
+
+    </div>
+
+    <!-- Main 3-Column Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+      
+      <!-- LEFT 2 COLS: Selection & Time Slots -->
+      <div class="lg:col-span-2 space-y-7">
+        
+        <!-- Server Selector Bar -->
+        <div class="bg-[#1a1a2e] border border-[#2A2A3A] rounded-2xl p-4 flex flex-wrap items-center gap-3 shadow-xl">
+          <span class="text-xs font-bold text-white/60 mr-2">เลือกเซิฟเวอร์:</span>
+          
+          <button onclick="selectServer('java')" id="srv-java" class="server-btn px-4 py-2 rounded-full text-xs font-bold transition-all border flex items-center gap-2 bg-[#4C1D95] border-[#7C3AED] text-white shadow">
+            <span>⛏️</span>
+            <span>Java Survival</span>
+          </button>
+          
+          <button onclick="selectServer('rlcraft')" id="srv-rlcraft" class="server-btn px-4 py-2 rounded-full text-xs font-bold transition-all border flex items-center gap-2 bg-[#0f0f1a] border-[#2A2A3A] text-white/60 hover:text-white">
+            <span>💀</span>
+            <span>RLCraft</span>
+          </button>
+          
+          <button onclick="selectServer('dregora')" id="srv-dregora" class="server-btn px-4 py-2 rounded-full text-xs font-bold transition-all border flex items-center gap-2 bg-[#0f0f1a] border-[#2A2A3A] text-white/60 hover:text-white">
+            <span>🐉</span>
+            <span>RL Dregora</span>
+          </button>
+          
+          <button onclick="selectServer('pixelmon')" id="srv-pixelmon" class="server-btn px-4 py-2 rounded-full text-xs font-bold transition-all border flex items-center gap-2 bg-[#0f0f1a] border-[#2A2A3A] text-white/60 hover:text-white">
+            <span>⚡</span>
+            <span>Pixelmon</span>
+          </button>
+        </div>
+
+        <!-- ======================================== -->
+        <!-- MODE 1: TIMESLOT VIEW                   -->
+        <!-- ======================================== -->
+        <div id="view-timeslot" class="space-y-7">
+          
+          <!-- Date Picker (7 วันถัดไป) -->
+          <div class="bg-[#1a1a2e] border border-[#2A2A3A] rounded-2xl p-6 space-y-4 shadow-xl">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                  <span>เลือกวันที่ (7 วันถัดไป)</span>
+                  <span id="dateRangeBadge" class="text-[11px] bg-purple-900/60 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full font-normal"></span>
+                </h3>
+                <p class="text-xs text-white/50 mt-0.5">
+                  * เมื่อเวลาถึง 23:00 น. วันปัจจุบันจะสิ้นสุดรอบและตัดออก เลื่อนวันใหม่อัตโนมัติ
+                </p>
+              </div>
+              <div id="todayStatusTag"></div>
+            </div>
+
+            <!-- Dynamic 7 Days Buttons Grid -->
+            <div id="daysGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2.5"></div>
+          </div>
+
+          <!-- Time Slots Grid -->
+          <div class="bg-[#1a1a2e] border border-[#2A2A3A] rounded-2xl p-6 space-y-6 shadow-xl">
+            
+            <!-- Header & Legends -->
+            <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[#2A2A3A] pb-4">
+              <div>
+                <h3 id="slotsTitle" class="text-base font-bold text-white">
+                  ช่วงเวลาว่างในวันที่ ...
+                </h3>
+                <p class="text-xs text-white/50 mt-0.5">
+                  แต่ละช่วงมีระยะเวลา 2 ชั่วโมง (฿50 / ช่อง)
+                </p>
+              </div>
+
+              <!-- Legend Status Indicators -->
+              <div class="flex flex-wrap items-center gap-3 text-xs font-medium">
+                <span class="flex items-center gap-1.5 text-[#6ee7b7]">
+                  <span class="w-3 h-3 rounded-full bg-[#6ee7b7]"></span> ว่าง
+                </span>
+                <span class="flex items-center gap-1.5 text-[#c4b5fd]">
+                  <span class="w-3 h-3 rounded-full bg-[#7C3AED]"></span> เลือกแล้ว
+                </span>
+                <span class="flex items-center gap-1.5 text-white/35">
+                  <span class="w-3 h-3 rounded-full bg-white/20"></span> จองแล้ว
+                </span>
+                <span class="flex items-center gap-1.5 text-red-400">
+                  <span class="w-3 h-3 rounded-full bg-red-500/70"></span> เลยเวลาแล้ว
+                </span>
+
+                <button id="btnClear" onclick="clearSelectedSlots()" class="hidden text-xs text-red-400 hover:text-red-300 underline font-semibold ml-2">
+                  ล้างทั้งหมด
+                </button>
+              </div>
+            </div>
+
+            <!-- Slots Grid -->
+            <div id="slotsContainer" class="grid grid-cols-1 sm:grid-cols-3 gap-4"></div>
+
+            <!-- Notice -->
+            <div class="text-xs text-white/40 bg-[#0f0f1a] p-3.5 rounded-xl border border-[#2A2A3A]/80 flex items-start gap-2.5">
+              <span class="text-sm">💡</span>
+              <span class="leading-relaxed">
+                <strong>กฎการป้องกันจองย้อนหลัง:</strong> เมื่อถึงเวลา 17:00 น. (5 โมงเย็น) ช่วงเวลาที่เริ่มก่อน 17:00 น. ทั้งหมด (09:00-11:00, 11:00-13:00, 13:00-15:00, 15:00-17:00) จะถูกปิดเป็น <span class="text-red-400 font-semibold">"เลยเวลาแล้ว"</span> ตัดสิทธิ์ไม่ให้เลือกโดยเด็ดขาด
+              </span>
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- ======================================== -->
+        <!-- MODE 2: FULLDAY VIEW (จองทั้งวัน)         -->
+        <!-- ======================================== -->
+        <div id="view-fullday" class="hidden space-y-7">
+          
+          <div class="bg-[#1a1a2e] border border-[#2A2A3A] rounded-2xl p-6 space-y-6 shadow-xl">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[#2A2A3A] pb-4">
+              <div>
+                <h3 class="text-base font-bold text-white">เลือกวันที่ต้องการจองทั้งวัน (14 วันล่วงหน้า)</h3>
+                <p class="text-xs text-white/50 mt-0.5">เข้าใช้งานได้ตลอด 24 ชั่วโมงในวันที่เลือก (00:00 – 23:59 น.)</p>
+              </div>
+              <div class="flex items-center gap-3 text-xs font-medium">
+                <span class="flex items-center gap-1.5 text-[#6ee7b7]">
+                  <span class="w-3 h-3 rounded-full bg-[#6ee7b7]"></span> ว่าง (฿200)
+                </span>
+                <span class="flex items-center gap-1.5 text-white/35">
+                  <span class="w-3 h-3 rounded-full bg-slate-600"></span> เต็มแล้ว / มีผู้จองแล้ว
+                </span>
+              </div>
+            </div>
+
+            <!-- 14 Days Grid for Full Day -->
+            <div id="fulldayGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3"></div>
+
+            <!-- Full Day Alert / Info -->
+            <div id="fulldayAlertBox" class="bg-[#4C1D95]/20 border border-[#7C3AED]/40 rounded-xl p-4 flex items-start gap-3 text-xs text-[#c4b5fd]">
+              <span class="text-xl">ℹ️</span>
+              <div class="space-y-1">
+                <div class="font-bold text-white text-sm">เงื่อนไขการจองทั้งวัน:</div>
+                <div class="text-white/70 leading-relaxed">
+                  • วันที่มีผู้จองทั้งวันแล้ว หรือมีผู้จอง Time Slot ค้างอยู่ (เช่น <strong>ตัวอย่างวันที่ 10 ต.ค.</strong>) ระบบจะ <strong>ปิดวันนั้นทันที</strong> ไม่สามารถคลิกเลือกได้<br>
+                  • หากวันปัจจุบันได้เริ่มไปแล้ว จะไม่สามารถจองทั้งวันของวันนี้ได้ (ป้องกันการจองย้อนหลัง)
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- ======================================== -->
+        <!-- MODE 3: MULTIDAY VIEW (จองหลายวัน)        -->
+        <!-- ======================================== -->
+        <div id="view-multiday" class="hidden space-y-7">
+          
+          <div class="bg-[#1a1a2e] border border-[#2A2A3A] rounded-2xl p-6 space-y-6 shadow-xl">
+            <div class="space-y-1 border-b border-[#2A2A3A] pb-4">
+              <h3 class="text-base font-bold text-white">เลือกช่วงวันที่ต้องการจอง (หลายวันต่อเนื่อง)</h3>
+              <p class="text-xs text-white/50">รับส่วนลดพิเศษ <strong>฿180 / วัน</strong> (เมื่อจองตั้งแต่ 1 วันขึ้นไป)</p>
+            </div>
+
+            <!-- Start & End Date Pickers -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              
+              <!-- Start Date -->
+              <div class="space-y-2">
+                <label class="text-xs font-bold text-white/70 block flex items-center gap-1.5">
+                  <span>📅</span> วันเริ่มต้น (Start Date)
+                </label>
+                <select id="multidayStartSelect" onchange="onMultidayChange()"
+                  class="w-full bg-[#0f0f1a] border border-[#2A2A3A] focus:border-[#7C3AED] text-white text-sm font-semibold rounded-xl p-3.5 outline-none transition-colors">
+                </select>
+              </div>
+
+              <!-- End Date -->
+              <div class="space-y-2">
+                <label class="text-xs font-bold text-white/70 block flex items-center gap-1.5">
+                  <span>🏁</span> วันสิ้นสุด (End Date)
+                </label>
+                <select id="multidayEndSelect" onchange="onMultidayChange()"
+                  class="w-full bg-[#0f0f1a] border border-[#2A2A3A] focus:border-[#7C3AED] text-white text-sm font-semibold rounded-xl p-3.5 outline-none transition-colors">
+                </select>
+              </div>
+
+            </div>
+
+            <!-- Real-time Conflict Alert Box (การแจ้งเตือนเมื่อช่วงวันทับซ้อนกับวันที่มีคนจองแล้ว) -->
+            <div id="multidayConflictBox" class="hidden rounded-xl p-4.5 border text-xs transition-all">
+              <!-- Populated by JS -->
+            </div>
+
+            <!-- Range Preview & Savings -->
+            <div id="multidayPreviewBox" class="bg-[#0f0f1a] border border-[#2A2A3A] rounded-xl p-5 space-y-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <span class="text-xs font-semibold text-white/60">ช่วงวันที่เลือก:</span>
+                <span id="multidayRangeBadge" class="bg-[#4C1D95] border border-[#7C3AED] text-white text-xs font-bold px-3.5 py-1.5 rounded-full shadow">
+                  -
+                </span>
+              </div>
+
+              <div class="border-t border-[#2A2A3A] pt-3 flex flex-wrap items-center justify-between text-xs">
+                <span class="text-white/70 font-semibold" id="multidayCalcText">
+                  คำนวณราคา: <strong>0 วัน</strong> × ฿180
+                </span>
+                <span class="text-[#a78bfa] text-base font-black" id="multidayCalcPrice">
+                  = ฿0
+                </span>
+              </div>
+
+              <!-- Savings Tag -->
+              <div class="bg-[rgba(6,78,59,0.4)] border border-[#059669]/60 text-[#6EE7B7] px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center justify-between">
+                <span>🎉 ส่วนลดแพ็กเกจหลายวัน:</span>
+                <span id="multidaySavingsText">ประหยัดกว่าจองแยกวันละ ฿20</span>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- RIGHT 1 COL: Sticky Summary Panel -->
+      <div class="lg:sticky lg:top-24 space-y-6">
+        
+        <div class="bg-[#1a1a2e] border border-[#2A2A3A] rounded-2xl p-6 shadow-2xl space-y-6">
+          
+          <!-- Header -->
+          <div class="flex items-center justify-between pb-4 border-b border-[#2A2A3A]">
+            <h2 class="text-lg font-bold text-white">สรุปการจอง</h2>
+            <span id="summaryModeBadge" class="px-3 py-1 bg-purple-900/60 border border-purple-500/40 text-purple-300 text-[11px] rounded-full font-bold">
+              Time Slot
+            </span>
+          </div>
+
+          <!-- Summary Items -->
+          <div class="space-y-4 text-xs">
+            <div class="flex justify-between items-center text-white/70">
+              <span>เซิร์ฟเวอร์:</span>
+              <span id="sumServer" class="font-bold text-white text-sm">Java Survival</span>
+            </div>
+
+            <div class="flex justify-between items-center text-white/70">
+              <span>ประเภท:</span>
+              <span id="sumModeLabel" class="font-medium text-white/90">เลือกช่วงเวลา</span>
+            </div>
+
+            <div class="flex justify-between items-start text-white/70">
+              <span class="whitespace-nowrap">วัน/เวลา:</span>
+              <div id="sumDateTime" class="font-semibold text-white text-right max-w-[180px]">
+                -
+              </div>
+            </div>
+          </div>
+
+          <!-- Info Badge -->
+          <div class="bg-[#0f0f1a] border border-[#2A2A3A] rounded-xl p-3 flex items-center justify-center gap-2 text-xs text-purple-300/80">
+            <span>👥</span>
+            <span>จำกัด 20 คน/เซิร์ฟเวอร์ Real-time</span>
+          </div>
+
+          <!-- Total Price Section -->
+          <div class="pt-4 border-t border-[#2A2A3A] flex items-end justify-between">
+            <div>
+              <div class="text-xs text-white/50">ราคารวม:</div>
+              <div id="priceFormula" class="text-xs text-white/40 mt-0.5">(0 ช่อง × ฿50)</div>
+            </div>
+            <div id="totalPriceDisplay" class="text-3xl font-black text-white tracking-tight flex items-baseline">
+              <span class="text-purple-400 font-sans text-2xl mr-0.5">฿</span>0
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="space-y-3 pt-2">
+            <button id="btnConfirm" disabled onclick="alertConfirm()" 
+              class="w-full py-3.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-[#2A2A3A] text-white/40 cursor-not-allowed">
+              ยืนยันและชำระเงิน
+            </button>
+
+            <button onclick="handleCancel()" class="w-full py-2.5 px-4 rounded-xl font-semibold text-xs transition-all text-white/50 hover:text-white hover:bg-white/5">
+              ยกเลิก
+            </button>
+          </div>
+
+        </div>
+
+        <!-- Logic checklist card -->
+        <div class="bg-[#151525] border border-purple-500/20 rounded-2xl p-5 space-y-3 text-xs">
+          <div class="font-bold text-purple-300 flex items-center gap-2">
+            <span>📋</span>
+            <span>เงื่อนไขสำคัญที่จำลองใน Mockup นี้</span>
+          </div>
+          <ul class="space-y-2.5 text-white/70 list-disc pl-4 leading-relaxed">
+            <li>
+              <strong>ตอน 17:00 น. (5 โมงเย็น):</strong> ช่องที่เริ่มก่อน 17:00 น. ทั้งหมดจะกลายเป็น <span class="text-red-400 font-semibold">"เลยเวลาแล้ว"</span> ตัดทิ้งไม่ให้เลือกย้อนหลัง
+            </li>
+            <li>
+              <strong>ตัดรอบ 23:00 น. (5 ทุ่ม):</strong> จบวันและตัดวันปัจจุบันออกจากแถบ 7 วัน เลื่อนไปเริ่มวันพรุ่งนี้ทันที
+            </li>
+            <li>
+              <strong>จองทั้งวัน (Full Day):</strong> วันที่มีการจองแล้ว (ตัวอย่าง <strong>10 ต.ค.</strong>) จะถูก <strong>ปิดวันไปเลย</strong>
+            </li>
+            <li>
+              <strong>จองหลายวัน (Multi Day):</strong> หากเลือกช่วงวันที่คร่อมวันที่มีคนจอง (เช่น คร่อมวันที่ 10 ต.ค.) ระบบจะ <strong>แจ้งเตือนสีแดง และระงับปุ่มยืนยัน</strong> ทันที
+            </li>
+          </ul>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ========================================== -->
+  <!-- 📜 JAVASCRIPT LOGIC                       -->
+  <!-- ========================================== -->
+  <script>
+    // Standard Slots (ตาม DB)
+    const STANDARD_SLOTS = [
+      { id: 1, start: '09:00', end: '11:00' },
+      { id: 2, start: '11:00', end: '13:00' },
+      { id: 3, start: '13:00', end: '15:00' },
+      { id: 4, start: '15:00', end: '17:00' },
+      { id: 5, start: '17:00', end: '19:00' },
+      { id: 6, start: '19:00', end: '21:00' },
+      { id: 7, start: '21:00', end: '23:00' },
+    ];
+
+    // Mock Booked dates:
+    // วันที่ 10 ต.ค. 2026 สมมติว่ามีคนจองทั้งวันไปแล้ว (หรือมีคนจอง Time Slot ไว้)
+    const MOCK_FULLY_BOOKED_DAYS = ['2026-10-10'];
+    const MOCK_SLOT_BOOKED = {
+      '2026-10-09': [2], // 11:00-13:00 booked by someone else
+    };
+
+    // State
+    let currentMode = 'timeslot'; // 'timeslot' | 'fullday' | 'multiday'
+    let isRealClock = false;
+    // Default simulated time: 9 ต.ค. 2026 เวลา 17:00 น. (5 โมงเย็น ตามที่ผู้ใช้ระบุ!)
+    let currentSimDate = new Date('2026-10-09T17:00:00');
+    
+    let activeServer = { id: 'java', name: 'Java Survival' };
+
+    // Timeslot mode states
+    let timeslotDays = [];
+    let selectedDateIndex = 0;
+    let selectedSlots = [];
+
+    // Fullday mode states
+    let fulldayDays = [];
+    let selectedFullDayDate = null;
+
+    // Multiday mode states
+    let multidayDays = [];
+    let selectedStartDate = null;
+    let selectedEndDate = null;
+    let multidayHasConflict = false;
+
+    // Thai Names
+    const THAI_DAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+    const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+    function formatLocalDateStr(d) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function getNow() {
+      return isRealClock ? new Date() : new Date(currentSimDate);
+    }
+
+    function setSimTime(isoStr) {
+      isRealClock = false;
+      currentSimDate = new Date(isoStr);
+      selectedSlots = [];
+      updateAll();
+    }
+
+    function useRealClock() {
+      isRealClock = true;
+      selectedSlots = [];
+      updateAll();
+    }
+
+    // Switch between modes
+    function switchMode(mode) {
+      currentMode = mode;
+      
+      // Update tab styles
+      document.querySelectorAll('.mode-tab').forEach(tab => {
+        tab.className = 'mode-tab py-3 px-4 rounded-xl font-bold text-sm transition-all flex flex-col items-center justify-center border bg-[#0f0f1a] border-[#2A2A3A] text-white/60 hover:text-white hover:border-[#7C3AED]/50';
+      });
+      const activeTab = document.getElementById(`tab-${mode}`);
+      if (activeTab) {
+        activeTab.className = 'mode-tab py-3 px-4 rounded-xl font-bold text-sm transition-all flex flex-col items-center justify-center border bg-[#4C1D95] border-[#7C3AED] text-white shadow-lg';
+      }
+
+      // Show/hide views
+      document.getElementById('view-timeslot').classList.toggle('hidden', mode !== 'timeslot');
+      document.getElementById('view-fullday').classList.toggle('hidden', mode !== 'fullday');
+      document.getElementById('view-multiday').classList.toggle('hidden', mode !== 'multiday');
+
+      // Update right sidebar mode badge
+      const modeBadges = {
+        timeslot: 'Time Slot',
+        fullday: 'จองทั้งวัน (24 ชม.)',
+        multiday: 'จองหลายวัน'
+      };
+      document.getElementById('summaryModeBadge').textContent = modeBadges[mode];
+      document.getElementById('sumModeLabel').textContent = modeBadges[mode];
+
+      updateSummary();
+    }
+
+    // Server Selection
+    function selectServer(srvId) {
+      const servers = {
+        java: 'Java Survival',
+        rlcraft: 'RLCraft',
+        dregora: 'RL Dregora',
+        pixelmon: 'Pixelmon'
+      };
+      activeServer = { id: srvId, name: servers[srvId] };
+      
+      document.querySelectorAll('.server-btn').forEach(btn => {
+        btn.className = 'server-btn px-4 py-2 rounded-full text-xs font-bold transition-all border flex items-center gap-2 bg-[#0f0f1a] border-[#2A2A3A] text-white/60 hover:text-white';
+      });
+      const activeBtn = document.getElementById(`srv-${srvId}`);
+      if (activeBtn) {
+        activeBtn.className = 'server-btn px-4 py-2 rounded-full text-xs font-bold transition-all border flex items-center gap-2 bg-[#4C1D95] border-[#7C3AED] text-white shadow';
+      }
+
+      document.getElementById('sumServer').textContent = activeServer.name;
+      document.getElementById('pageSubTitle').textContent = `${activeServer.name} — เลือกรูปแบบการจองและเวลาที่ต้องการ`;
+
+      selectedSlots = [];
+      renderTimeslotSlots();
+      updateSummary();
+    }
+
+    /**
+     * Compute days array with 23:00 cutoff logic
+     */
+    function computeDays(now, count) {
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const isPast23 = (currentHour > 23) || (currentHour === 23 && currentMinute >= 0);
+      const startOffset = isPast23 ? 1 : 0;
+      const days = [];
+
+      for (let i = 0; i < count; i++) {
+        const d = new Date(now);
+        d.setDate(d.getDate() + (startOffset + i));
+        
+        const dateStr = formatLocalDateStr(d);
+        const dayName = THAI_DAYS[d.getDay()];
+        const dayNum = d.getDate();
+        const monthName = THAI_MONTHS[d.getMonth()];
+
+        days.push({
+          dateStr,
+          rawDate: d,
+          label: `${dayName}.${dayNum} ${monthName}`,
+          fullLabel: `${dayName}ที่ ${dayNum} ${monthName} ${d.getFullYear()}`,
+          isToday: i === 0 && !isPast23,
+          isTomorrow: (i === 0 && isPast23) || (i === 1 && !isPast23),
+          isFullyBooked: MOCK_FULLY_BOOKED_DAYS.includes(dateStr)
+        });
+      }
+
+      return { days, isPast23 };
+    }
+
+    // ==========================================
+    // RENDER: TIMESLOT MODE
+    // ==========================================
+    function renderTimeslotDays() {
+      const now = getNow();
+      const { days, isPast23 } = computeDays(now, 7);
+      timeslotDays = days;
+
+      if (selectedDateIndex >= timeslotDays.length) {
+        selectedDateIndex = 0;
+      }
+
+      const container = document.getElementById('daysGrid');
+      container.innerHTML = '';
+
+      timeslotDays.forEach((day, idx) => {
+        const isSelected = idx === selectedDateIndex;
+        const btn = document.createElement('button');
+        btn.onclick = () => {
+          selectedDateIndex = idx;
+          selectedSlots = [];
+          renderTimeslotDays();
+          renderTimeslotSlots();
+          updateSummary();
+        };
+
+        let badge = '';
+        if (day.isToday) {
+          badge = '<span class="block text-[9px] text-emerald-400 font-semibold mb-0.5">● วันนี้</span>';
+        } else if (day.isTomorrow) {
+          badge = '<span class="block text-[9px] text-purple-300 font-semibold mb-0.5">วันพรุ่งนี้</span>';
+        }
+
+        btn.className = `py-3 px-2 rounded-xl font-bold text-xs transition-all border text-center flex flex-col items-center justify-center ${
+          isSelected
+            ? 'border-[#7C3AED] bg-[#7C3AED]/25 text-white shadow-lg ring-1 ring-[#7C3AED]'
+            : 'border-[#2A2A3A] bg-[#0f0f1a] text-white/70 hover:border-[#7C3AED]/50 hover:text-white'
+        }`;
+
+        btn.innerHTML = `${badge}<span>${day.label}</span>`;
+        container.appendChild(btn);
+      });
+
+      document.getElementById('dateRangeBadge').textContent = `${timeslotDays[0]?.label} – ${timeslotDays[6]?.label}`;
+
+      const todayStatusTag = document.getElementById('todayStatusTag');
+      if (isPast23) {
+        todayStatusTag.innerHTML = `
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 font-medium text-[11px]">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            ตัดรอบ 23:00 น. แล้ว (เริ่มนับวันถัดไป)
+          </span>
+        `;
+      } else {
+        todayStatusTag.innerHTML = `
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-medium text-[11px]">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            รอบวันนี้เปิดอยู่ (จองได้ถึง 23:00 น.)
+          </span>
+        `;
+      }
+    }
+
+    function renderTimeslotSlots() {
+      const now = getNow();
+      const currentDay = timeslotDays[selectedDateIndex];
+      if (!currentDay) return;
+
+      const nowDateStr = formatLocalDateStr(now);
+      const isSelectingToday = (currentDay.dateStr === nowDateStr);
+      const nowTimeMinutes = now.getHours() * 60 + now.getMinutes();
+
+      document.getElementById('slotsTitle').textContent = `ช่วงเวลาว่างในวันที่ ${currentDay.label}`;
+
+      const container = document.getElementById('slotsContainer');
+      container.innerHTML = '';
+
+      // If the entire day is fully booked
+      if (currentDay.isFullyBooked) {
+        container.innerHTML = `
+          <div class="col-span-3 py-10 px-4 text-center bg-[#0d0d16] rounded-xl border border-red-500/30 text-red-300 space-y-2">
+            <div class="text-3xl">🔒</div>
+            <div class="font-bold text-sm">วันที่ ${currentDay.label} มีผู้จองทั้งวันแล้ว</div>
+            <div class="text-xs text-white/50">กรุณาเลือกวันอื่นที่ยังว่างอยู่ครับ</div>
+          </div>
+        `;
+        return;
+      }
+
+      const bookedIds = MOCK_SLOT_BOOKED[currentDay.dateStr] || [];
+
+      STANDARD_SLOTS.forEach(slot => {
+        const [startH, startM] = slot.start.split(':').map(Number);
+        const slotStartMinutes = startH * 60 + startM;
+
+        // Rule: On today, any slot where start time <= current time is PAST (ห้ามจองย้อนหลัง)
+        const isPast = isSelectingToday && (slotStartMinutes <= nowTimeMinutes);
+        const isBooked = bookedIds.includes(slot.id);
+        const isSelected = selectedSlots.some(s => s.id === slot.id);
+
+        const card = document.createElement('button');
+        const timeText = `${slot.start}-${slot.end}`;
+
+        if (isPast) {
+          // เลยเวลาแล้ว (ตัดทิ้ง ไม่ให้เลือก)
+          card.disabled = true;
+          card.className = 'py-4 px-3 rounded-xl border border-white/5 bg-[#0d0d16] text-white/30 cursor-not-allowed flex flex-col items-center justify-center gap-1.5 relative select-none opacity-60';
+          card.innerHTML = `
+            <span class="font-bold text-sm tracking-wide line-through decoration-white/20">${timeText}</span>
+            <span class="text-[10px] font-semibold badge-past px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span>✕</span> เลยเวลาแล้ว
+            </span>
+          `;
+        } else if (isBooked) {
+          // จองแล้ว
+          card.disabled = true;
+          card.className = 'py-4 px-3 rounded-xl border border-white/10 bg-[#0f0f1a] text-white/25 cursor-not-allowed flex flex-col items-center justify-center gap-1.5 relative select-none opacity-40';
+          card.innerHTML = `
+            <span class="font-bold text-sm tracking-wide">${timeText}</span>
+            <span class="text-[10px] font-normal opacity-70">จองแล้ว</span>
+          `;
+        } else if (isSelected) {
+          // เลือกแล้ว
+          card.onclick = () => toggleSlot(slot, timeText);
+          card.className = 'py-4 px-3 rounded-xl border border-[#7C3AED] bg-[rgba(124,58,237,0.25)] text-[#c4b5fd] font-bold text-sm transition-all flex flex-col items-center justify-center gap-1.5 relative shadow-lg glow-purple';
+          card.innerHTML = `
+            <span class="absolute top-2 right-2 w-4 h-4 rounded-full bg-[#7C3AED] text-white flex items-center justify-center text-[10px]">✓</span>
+            <span class="tracking-wide">${timeText}</span>
+            <span class="text-[10px] font-medium text-purple-200">เลือกแล้ว (฿50)</span>
+          `;
+        } else {
+          // ว่าง
+          card.onclick = () => toggleSlot(slot, timeText);
+          card.className = 'py-4 px-3 rounded-xl border border-[#6ee7b7]/80 hover:border-[#6ee7b7] text-[#6ee7b7] bg-transparent hover:bg-[#6ee7b7]/10 font-bold text-sm transition-all flex flex-col items-center justify-center gap-1.5 relative group hover:scale-[1.02]';
+          card.innerHTML = `
+            <span class="tracking-wide text-white group-hover:text-[#6ee7b7] transition-colors">${timeText}</span>
+            <span class="text-[10px] font-normal opacity-85 text-[#6ee7b7]">฿50 (2 ชม.)</span>
+          `;
+        }
+
+        container.appendChild(card);
+      });
+    }
+
+    function toggleSlot(slot, timeText) {
+      const idx = selectedSlots.findIndex(s => s.id === slot.id);
+      if (idx >= 0) {
+        selectedSlots.splice(idx, 1);
+      } else {
+        selectedSlots.push({ ...slot, timeText });
+      }
+      renderTimeslotSlots();
+      updateSummary();
+    }
+
+    function clearSelectedSlots() {
+      selectedSlots = [];
+      renderTimeslotSlots();
+      updateSummary();
+    }
+
+    // ==========================================
+    // RENDER: FULL DAY MODE (จองทั้งวัน)
+    // ==========================================
+    function renderFullDayView() {
+      const now = getNow();
+      // 14 days ahead
+      const { days } = computeDays(now, 14);
+      fulldayDays = days;
+
+      if (!selectedFullDayDate && fulldayDays.length > 0) {
+        // pick first available day
+        const firstAvail = fulldayDays.find(d => !d.isFullyBooked);
+        if (firstAvail) selectedFullDayDate = firstAvail.dateStr;
+      }
+
+      const grid = document.getElementById('fulldayGrid');
+      grid.innerHTML = '';
+
+      fulldayDays.forEach(day => {
+        const isBooked = day.isFullyBooked;
+        const isSelected = selectedFullDayDate === day.dateStr && !isBooked;
+
+        const btn = document.createElement('button');
+        if (isBooked) {
+          // ปิดไปเลย ตามคำขอ: "เเก้ทั้งวันให้วันที่ 5 ที่จองทั้งวันควรปิดไปเลย"
+          btn.disabled = true;
+          btn.className = 'py-3.5 px-2 rounded-xl border border-white/5 bg-[#0d0d16] text-white/20 cursor-not-allowed text-center opacity-50 relative';
+          btn.innerHTML = `
+            <div class="line-through decoration-white/30 text-xs font-bold">${day.label}</div>
+            <div class="text-[10px] font-semibold text-red-400 mt-1">🔒 เต็มแล้ว</div>
+          `;
+        } else if (isSelected) {
+          btn.className = 'py-3.5 px-2 rounded-xl font-bold text-xs transition-all border text-center border-[#7C3AED] bg-[#7C3AED]/25 text-white shadow-lg ring-1 ring-[#7C3AED] scale-[1.02]';
+          btn.onclick = () => selectFullDay(day.dateStr);
+          btn.innerHTML = `
+            <div>${day.label}</div>
+            <div class="text-[10px] font-medium text-purple-200 mt-1">เลือกแล้ว (฿200)</div>
+          `;
+        } else {
+          btn.className = 'py-3.5 px-2 rounded-xl font-bold text-xs transition-all border text-center border-[#2A2A3A] bg-[#0f0f1a] text-white/70 hover:border-[#7C3AED]/50 hover:text-white';
+          btn.onclick = () => selectFullDay(day.dateStr);
+          btn.innerHTML = `
+            <div>${day.label}</div>
+            <div class="text-[10px] font-normal text-emerald-400 mt-1">฿200/วัน</div>
+          `;
+        }
+
+        grid.appendChild(btn);
+      });
+    }
+
+    function selectFullDay(dateStr) {
+      selectedFullDayDate = dateStr;
+      renderFullDayView();
+      updateSummary();
+    }
+
+    // ==========================================
+    // RENDER: MULTI DAY MODE (จองหลายวัน)
+    // ==========================================
+    function renderMultiDayView() {
+      const now = getNow();
+      const { days } = computeDays(now, 14);
+      multidayDays = days;
+
+      const startSelect = document.getElementById('multidayStartSelect');
+      const endSelect = document.getElementById('multidayEndSelect');
+
+      const prevStart = selectedStartDate || multidayDays[0]?.dateStr;
+      const prevEnd = selectedEndDate || multidayDays[2]?.dateStr;
+
+      startSelect.innerHTML = '';
+      endSelect.innerHTML = '';
+
+      multidayDays.forEach(d => {
+        const isBooked = d.isFullyBooked;
+        const optStart = document.createElement('option');
+        optStart.value = d.dateStr;
+        optStart.textContent = `${d.label} (${d.fullLabel})${isBooked ? ' [🔒 มีผู้จองแล้ว]' : ''}`;
+        startSelect.appendChild(optStart);
+
+        const optEnd = document.createElement('option');
+        optEnd.value = d.dateStr;
+        optEnd.textContent = `${d.label} (${d.fullLabel})${isBooked ? ' [🔒 มีผู้จองแล้ว]' : ''}`;
+        endSelect.appendChild(optEnd);
+      });
+
+      selectedStartDate = prevStart;
+      selectedEndDate = prevEnd;
+      startSelect.value = selectedStartDate;
+      endSelect.value = selectedEndDate;
+
+      checkMultidayConflicts();
+    }
+
+    function onMultidayChange() {
+      const startSelect = document.getElementById('multidayStartSelect');
+      const endSelect = document.getElementById('multidayEndSelect');
+
+      selectedStartDate = startSelect.value;
+      selectedEndDate = endSelect.value;
+
+      if (selectedEndDate < selectedStartDate) {
+        selectedEndDate = selectedStartDate;
+        endSelect.value = selectedEndDate;
+      }
+
+      checkMultidayConflicts();
+      updateSummary();
+    }
+
+    function checkMultidayConflicts() {
+      if (!selectedStartDate || !selectedEndDate) return;
+
+      // Find all dates in the selected range
+      const rangeDates = multidayDays.filter(d => d.dateStr >= selectedStartDate && d.dateStr <= selectedEndDate);
+      const conflictDates = rangeDates.filter(d => d.isFullyBooked);
+
+      const conflictBox = document.getElementById('multidayConflictBox');
+      const rangeBadge = document.getElementById('multidayRangeBadge');
+      const calcText = document.getElementById('multidayCalcText');
+      const calcPrice = document.getElementById('multidayCalcPrice');
+      const savingsText = document.getElementById('multidaySavingsText');
+
+      const startObj = multidayDays.find(d => d.dateStr === selectedStartDate);
+      const endObj = multidayDays.find(d => d.dateStr === selectedEndDate);
+      const dayCount = rangeDates.length;
+
+      rangeBadge.textContent = `${startObj?.label} – ${endObj?.label} (${dayCount} วัน)`;
+
+      if (conflictDates.length > 0) {
+        multidayHasConflict = true;
+        const conflictNames = conflictDates.map(d => d.label).join(', ');
+        conflictBox.className = 'rounded-xl p-4 bg-red-950/40 border border-red-500/50 text-red-200 text-xs flex items-start gap-3 shadow-lg';
+        conflictBox.innerHTML = `
+          <span class="text-xl">⚠️</span>
+          <div class="space-y-1">
+            <div class="font-bold text-sm text-red-300">ไม่สามารถจองช่วงวันที่นี้ได้:</div>
+            <div class="leading-relaxed">
+              ในช่วงวันที่เลือก มีวันที่ติดจองแล้ว ได้แก่ <strong>${conflictNames}</strong> ทำให้ไม่สามารถเปิดให้จองทั้งช่วงได้ กรุณาเลือกช่วงวันใหม่ที่ไม่ติดวันจองครับ
+            </div>
+          </div>
+        `;
+        conflictBox.classList.remove('hidden');
+
+        calcText.innerHTML = `<span class="text-red-400 font-bold">ติดวันที่มีผู้จองแล้ว (${conflictNames})</span>`;
+        calcPrice.innerHTML = `<span class="text-white/40">-</span>`;
+      } else {
+        multidayHasConflict = false;
+        conflictBox.classList.add('hidden');
+
+        const total = dayCount * 180;
+        const savings = dayCount * 20;
+        calcText.innerHTML = `คำนวณราคา: <strong>${dayCount} วัน</strong> × ฿180`;
+        calcPrice.innerHTML = `= ฿${total}`;
+        savingsText.textContent = `ประหยัดกว่าจองแยกวันละ ฿20 (ประหยัดได้ ฿${savings})`;
+      }
+    }
+
+    // ==========================================
+    // SUMMARY SIDEBAR UPDATE
+    // ==========================================
+    function updateSummary() {
+      const sumDateTime = document.getElementById('sumDateTime');
+      const btnClear = document.getElementById('btnClear');
+      const btnConfirm = document.getElementById('btnConfirm');
+      const totalPriceDisplay = document.getElementById('totalPriceDisplay');
+      const priceFormula = document.getElementById('priceFormula');
+
+      if (currentMode === 'timeslot') {
+        const currentDay = timeslotDays[selectedDateIndex];
+        if (selectedSlots.length === 0) {
+          sumDateTime.innerHTML = '<span class="text-white/40">-</span>';
+          btnClear.classList.add('hidden');
+          btnConfirm.disabled = true;
+          btnConfirm.className = 'w-full py-3.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-[#2A2A3A] text-white/40 cursor-not-allowed';
+          priceFormula.textContent = '(0 ช่อง × ฿50)';
+          totalPriceDisplay.innerHTML = '<span class="text-purple-400 font-sans text-2xl mr-0.5">฿</span>0';
+          return;
+        }
+
+        btnClear.classList.remove('hidden');
+        btnConfirm.disabled = false;
+        btnConfirm.className = 'w-full py-3.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white shadow-lg glow-purple active:scale-[0.98]';
+
+        selectedSlots.sort((a, b) => a.id - b.id);
+        const timesText = selectedSlots.map(s => s.timeText).join(', ');
+
+        sumDateTime.innerHTML = `
+          <div class="text-purple-300 font-bold">${currentDay?.label}</div>
+          <div class="text-[11px] text-white/70 font-mono mt-0.5">${timesText}</div>
+        `;
+
+        const count = selectedSlots.length;
+        const total = count * 50;
+        priceFormula.textContent = `(${count} ช่อง × ฿50)`;
+        totalPriceDisplay.innerHTML = `<span class="text-purple-400 font-sans text-2xl mr-0.5">฿</span>${total}`;
+      }
+      else if (currentMode === 'fullday') {
+        btnClear.classList.add('hidden');
+        const dayObj = fulldayDays.find(d => d.dateStr === selectedFullDayDate);
+        if (!selectedFullDayDate || !dayObj || dayObj.isFullyBooked) {
+          sumDateTime.innerHTML = '<span class="text-white/40">-</span>';
+          btnConfirm.disabled = true;
+          btnConfirm.className = 'w-full py-3.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-[#2A2A3A] text-white/40 cursor-not-allowed';
+          priceFormula.textContent = '(1 วัน × ฿200)';
+          totalPriceDisplay.innerHTML = '<span class="text-purple-400 font-sans text-2xl mr-0.5">฿</span>0';
+          return;
+        }
+
+        btnConfirm.disabled = false;
+        btnConfirm.className = 'w-full py-3.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white shadow-lg glow-purple active:scale-[0.98]';
+
+        sumDateTime.innerHTML = `
+          <div class="text-purple-300 font-bold">${dayObj.label}</div>
+          <div class="text-[11px] text-emerald-300 mt-0.5">ทั้งวัน 24 ชม. (00:00 - 23:59)</div>
+        `;
+
+        priceFormula.textContent = '(1 วัน × ฿200)';
+        totalPriceDisplay.innerHTML = '<span class="text-purple-400 font-sans text-2xl mr-0.5">฿</span>200';
+      }
+      else if (currentMode === 'multiday') {
+        btnClear.classList.add('hidden');
+        const startObj = multidayDays.find(d => d.dateStr === selectedStartDate);
+        const endObj = multidayDays.find(d => d.dateStr === selectedEndDate);
+        const rangeDates = multidayDays.filter(d => d.dateStr >= selectedStartDate && d.dateStr <= selectedEndDate);
+        const count = rangeDates.length;
+
+        if (multidayHasConflict || count <= 0) {
+          sumDateTime.innerHTML = '<span class="text-red-400 text-xs">ช่วงวันติดจองแล้ว</span>';
+          btnConfirm.disabled = true;
+          btnConfirm.className = 'w-full py-3.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-[#2A2A3A] text-white/40 cursor-not-allowed';
+          priceFormula.textContent = `(${count} วัน × ฿180)`;
+          totalPriceDisplay.innerHTML = '<span class="text-purple-400 font-sans text-2xl mr-0.5">฿</span>0';
+          return;
+        }
+
+        btnConfirm.disabled = false;
+        btnConfirm.className = 'w-full py-3.5 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white shadow-lg glow-purple active:scale-[0.98]';
+
+        sumDateTime.innerHTML = `
+          <div class="text-purple-300 font-bold">${startObj?.label} – ${endObj?.label}</div>
+          <div class="text-[11px] text-emerald-300 mt-0.5">รวม ${count} วัน (ลดเหลือ ฿180/วัน)</div>
+        `;
+
+        const total = count * 180;
+        priceFormula.textContent = `(${count} วัน × ฿180)`;
+        totalPriceDisplay.innerHTML = `<span class="text-purple-400 font-sans text-2xl mr-0.5">฿</span>${total}`;
+      }
+    }
+
+    function handleCancel() {
+      selectedSlots = [];
+      renderTimeslotSlots();
+      updateSummary();
+    }
+
+    function alertConfirm() {
+      let details = '';
+      if (currentMode === 'timeslot') {
+        const day = timeslotDays[selectedDateIndex];
+        const times = selectedSlots.map(s => s.timeText).join(', ');
+        details = `โหมด: Time Slot\nเซิร์ฟเวอร์: ${activeServer.name}\nวันที่: ${day.fullLabel}\nช่วงเวลา: ${times}\nราคารวม: ฿${selectedSlots.length * 50}`;
+      } else if (currentMode === 'fullday') {
+        const day = fulldayDays.find(d => d.dateStr === selectedFullDayDate);
+        details = `โหมด: จองทั้งวัน (24 ชม.)\nเซิร์ฟเวอร์: ${activeServer.name}\nวันที่: ${day.fullLabel}\nราคารวม: ฿200`;
+      } else if (currentMode === 'multiday') {
+        const range = multidayDays.filter(d => d.dateStr >= selectedStartDate && d.dateStr <= selectedEndDate);
+        details = `โหมด: จองหลายวัน\nเซิร์ฟเวอร์: ${activeServer.name}\nช่วงวันที่: ${selectedStartDate} ถึง ${selectedEndDate} (${range.length} วัน)\nราคารวม: ฿${range.length * 180}`;
+      }
+      alert(`✅ ยืนยันการจองเรียบร้อย!\n\n${details}`);
+    }
+
+    // ==========================================
+    // UPDATE ALL VIEWS
+    // ==========================================
+    function updateAll() {
+      const now = getNow();
+      
+      const dayName = THAI_DAYS[now.getDay()];
+      const dayNum = now.getDate();
+      const monthName = THAI_MONTHS[now.getMonth()];
+      const year = now.getFullYear();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      
+      document.getElementById('currentSimDisplay').textContent = 
+        `${dayName}. ${dayNum} ${monthName} ${year} เวลา ${hh}:${mm} น.`;
+
+      const simStatusPill = document.getElementById('simStatusPill');
+      const ruleBanner = document.getElementById('ruleBanner');
+
+      const isPast23 = (now.getHours() > 23) || (now.getHours() === 23 && now.getMinutes() >= 0);
+
+      if (isPast23) {
+        simStatusPill.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40';
+        simStatusPill.textContent = '● หลัง 23:00 น. (จบวัน)';
+        
+        ruleBanner.className = 'bg-amber-950/40 border-b border-amber-500/30 px-4 py-2.5 text-xs text-amber-200 text-center flex items-center justify-center gap-2';
+        ruleBanner.innerHTML = `
+          <span>🛑</span>
+          <span><strong>เวลาผ่าน 23:00 น. แล้ว:</strong> ระบบได้ทำการตัดรอบของวันที่ ${dayNum} ${monthName} ออก และเลื่อนแถบ 7 วันไปเริ่มต้นที่ <strong>วันพรุ่งนี้</strong> ทันที!</span>
+        `;
+      } else if (now.getHours() >= 17) {
+        simStatusPill.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-500/50';
+        simStatusPill.textContent = `● เวลา ${hh}:${mm} น. (ห้ามจองย้อนหลัง)`;
+
+        ruleBanner.className = 'bg-purple-950/50 border-b border-purple-500/40 px-4 py-2.5 text-xs text-purple-200 text-center flex items-center justify-center gap-2';
+        ruleBanner.innerHTML = `
+          <span>⏱️</span>
+          <span><strong>เวลาปัจจุบันคือ ${hh}:${mm} น. (5 โมงเย็น):</strong> ช่วงเวลาที่เริ่มก่อน ${hh}:${mm} น. ทั้งหมด (09:00-17:00) ถูกตัดสิทธิ์เป็น <strong class="text-red-400">"เลยเวลาแล้ว"</strong> จองได้เฉพาะ 17:00 น. เป็นต้นไป</span>
+        `;
+      } else {
+        simStatusPill.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        simStatusPill.textContent = '● ก่อน 17:00 น. (ปกติ)';
+
+        ruleBanner.className = 'bg-purple-950/40 border-b border-purple-500/30 px-4 py-2.5 text-xs text-purple-200 text-center flex items-center justify-center gap-2';
+        ruleBanner.innerHTML = `
+          <span>⏱️</span>
+          <span><strong>สถานะปกติ:</strong> ช่วงเวลาที่ผ่านมาแล้วก่อน ${hh}:${mm} น. จะถูกล็อกเป็น <strong>"เลยเวลาแล้ว"</strong> ไม่ให้จองย้อนหลัง</span>
+        `;
+      }
+
+      renderTimeslotDays();
+      renderTimeslotSlots();
+      renderFullDayView();
+      renderMultiDayView();
+      updateSummary();
+    }
+
+    // Auto update clock every 15s if in real clock mode
+    setInterval(() => {
+      if (isRealClock) updateAll();
+    }, 15000);
+
+    // Initial render
+    updateAll();
+  </script>
+
+</body>
+</html>

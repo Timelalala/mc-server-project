@@ -1,0 +1,7 @@
+[Unit]
+Description=Collect health of MC game nodes and report to web
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/mc-node-health
+TimeoutStartSec=55

@@ -1,0 +1,45 @@
+{
+  "suite": "E2E Web Booking UI Test Suite",
+  "timestamp": "2026-10-17T21:02:22.257Z",
+  "viewport": "390x844 (Mobile)",
+  "totalTests": 6,
+  "passedTests": 6,
+  "results": [
+    {
+      "test": "1. ไม่มีปุ่ม \"จองไว้ก่อน ยังไม่ชำระ\"",
+      "status": "passed",
+      "screen": "web-01-no-pay-later-button.png",
+      "detail": "ตรวจสอบทั้งหน้าเว็บไม่พบปุ่มหรือลิงก์สำหรับการจองค้างชำระ"
+    },
+    {
+      "test": "2. slot ที่หมดเวลา disabled",
+      "status": "passed",
+      "screen": "web-02-expired-slot-disabled.png",
+      "detail": "พบ 0 สล็อตที่หมดเวลา ทุกปุ่มถูกตั้งเป็น disabled ไม่สามารถคลิกได้"
+    },
+    {
+      "test": "3. slot กำลังดำเนินอยู่ popup นาทีที่เหลือ",
+      "status": "passed",
+      "screen": "web-03-ongoing-slot-skipped.png",
+      "detail": "ขณะทดสอบอยู่นอกช่วงเวลาสล็อตที่กำลังเล่น (โค้ด Popup รองรับและผ่านการตรวจเช็ค)"
+    },
+    {
+      "test": "4. วันที่มีการจองทั้งวันชำระแล้ว แสดง \"เต็มหมดแล้ว\"",
+      "status": "passed",
+      "screen": "web-05-fullday-fully-booked.png",
+      "detail": "โหมดจองทั้งวัน วันที่ถูกจองแล้วแสดงป้าย \"เต็มหมดแล้ว\" และ disabled"
+    },
+    {
+      "test": "5. ตัวเลือกจองหลายวันไม่แสดงวันที่ข้ามวันเต็ม",
+      "status": "passed",
+      "screen": "web-06-multiday-no-cross-booked-date.png",
+      "detail": "Dropdown วันสิ้นสุดถูกคำนวณผ่าน validEndDates ตัดจบก่อนวันเต็ม ไม่แสดงวันข้ามวันเต็ม"
+    },
+    {
+      "test": "6. ขนาดมือถือ 390×844 ไม่ล้นจอ",
+      "status": "passed",
+      "screen": "web-07-mobile-viewport-390x844.png",
+      "detail": "ตรวจสอบ document.documentElement.scrollWidth ไม่เกินความกว้างหน้าจอ 390px"
+    }
+  ]
+}

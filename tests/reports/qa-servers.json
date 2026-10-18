@@ -1,0 +1,18 @@
+{
+  "suite": "QA Servers & Slots Suite",
+  "timestamp": "2026-10-17T21:02:10.350Z",
+  "totalTests": 2,
+  "passedTests": 2,
+  "results": [
+    {
+      "test": "SRV-02: ตรวจสอบโครงสร้างและ 5 สถานะสล็อตเวลา",
+      "status": "passed",
+      "detail": "สล็อตทั้งหมด 7 สล็อต มีสถานะตรงตามมาตรฐาน 5 สถานะ"
+    },
+    {
+      "test": "SRV-03: รายการวันที่เต็มสำหรับปฏิทิน",
+      "status": "passed",
+      "detail": "ส่ง fullBookedDates ถูกต้อง มีวันที่เต็มทั้งหมด 20 วัน"
+    }
+  ]
+}

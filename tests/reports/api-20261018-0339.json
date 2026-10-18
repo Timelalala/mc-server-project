@@ -1,0 +1,50 @@
+{
+  "suite": "API Booking Rules Test Suite",
+  "timestamp": "2026-10-17T20:39:39.132Z",
+  "blockScope": "all",
+  "minMinutesLeft": 15,
+  "totalTests": 8,
+  "passedTests": 8,
+  "results": [
+    {
+      "test": "1. ช่วงที่จบแล้วจองไม่ได้",
+      "status": "passed",
+      "detail": "ได้ 400 พร้อมข้อความแจ้งเตือนหมดเวลา"
+    },
+    {
+      "test": "2. การจองที่ยังไม่ชำระไม่ทำให้ช่องเต็ม",
+      "status": "passed",
+      "detail": "สร้างการจอง #38 (pending) แล้ว slot ยังคงว่าง (available)"
+    },
+    {
+      "test": "3. ชำระแล้วเต็มทุกเซิร์ฟเวอร์ (BLOCK_SCOPE=all)",
+      "status": "passed",
+      "detail": "ชำระ #39 บน Server 1 แล้ว Server 2 ติดสถานะ booked"
+    },
+    {
+      "test": "4. สร้างการจองทับช่วงที่เต็ม -> 409 ข้อความภาษาไทย",
+      "status": "passed",
+      "detail": "ตอบกลับ 409: \"ช่วงเวลานี้ถูกจองและชำระเงินสำเร็จไปแล้ว กรุณาเลือกช่วงเวลาอื่น\""
+    },
+    {
+      "test": "5. จองทั้งวันที่ชำระแล้ว -> ทุก slot ในวันนั้นเต็ม",
+      "status": "passed",
+      "detail": "ชำระ #40 แบบ fullday ส่งผลให้ทุกช่องในวันที่ 2027-04-19 เต็ม 100%"
+    },
+    {
+      "test": "6. จองหลายวัน 3 วันที่ชำระแล้ว -> ทุกวันในช่วงเต็ม",
+      "status": "passed",
+      "detail": "ชำระ #41 แบบ multiday (2027-04-23 ถึง 2027-04-25) ทุกวันเต็มทั้งหมด"
+    },
+    {
+      "test": "7. ระบบตรวจสอบวันเต็ม (Busy-Dates)",
+      "status": "passed",
+      "detail": "API ส่ง fullBookedDates ครอบคลุมวันที่จองทั้งวันและหลายวันทั้งหมด"
+    },
+    {
+      "test": "8. Concurrency: ชำระพร้อมกัน คนที่สองได้ 409",
+      "status": "passed",
+      "detail": "การจอง #42 ได้รับสิทธิ์, การจอง #43 ถูกปฏิเสธ 409 ตามหลัก First-Paid-First-Served"
+    }
+  ]
+}

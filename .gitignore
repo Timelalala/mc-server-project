@@ -29,3 +29,12 @@ uploads/
 Thumbs.db
 .vscode/
 .idea/
+
+# Monitoring (Prometheus & Grafana)
+monitoring/
+
+# Python & Tests
+__pycache__/
+*.pyc
+test-results/
+*.bak

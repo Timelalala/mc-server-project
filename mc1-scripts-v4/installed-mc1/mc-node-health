@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""
+mc-node-health: เก็บสุขภาพของทุกโหนดใน /etc/mc-slot/nodes.json แล้วส่งให้ backend
+รันเป็น root ทุกนาทีด้วย mc-node-health.timer (ใช้ ssh key เดียวกับ mcslot)
+  sudo mc-node-health --dry-run   พิมพ์ผลออกจอ ไม่ส่งให้เว็บ
+"""
+import json, shlex, subprocess, sys, urllib.request, urllib.error
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+
+D = "/etc/mc-slot"
+NODES = f"{D}/nodes.json"
+WEB = "http://127.0.0.1:5000/api/mc"
+SSH_KEY = "/root/.ssh/mcnode_key"
+LOCAL_HOSTS = {"", "localhost", "127.0.0.1", "local"}
+OUT = "/run/mc-node-health.json"
+
+PROBE = r'''
+c1=$(head -1 /proc/stat); sleep 1; c2=$(head -1 /proc/stat)
+printf '%s\n%s\n' "$c1" "$c2" | awk '{idle=$5+$6; t=0; for(i=2;i<=NF;i++) t+=$i;
+  if (NR==1) {i1=idle; t1=t} else if (t>t1) printf "cpu_pct=%.1f\n", 100*(1-(idle-i1)/(t-t1))}'
+echo "ncpu=$(nproc)"
+echo "load1=$(cut -d' ' -f1 /proc/loadavg)"
+echo "uptime_s=$(cut -d' ' -f1 /proc/uptime)"
+awk '/^MemTotal:/{print "mem_total_kb="$2} /^MemAvailable:/{print "mem_avail_kb="$2}' /proc/meminfo
+echo "temp_c=$(vcgencmd measure_temp 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)?' | head -1)"
+echo "throttled=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"
+if [ -n "$SVC" ]; then echo "service_state=$(systemctl is-active "$SVC" 2>/dev/null)"; fi
+'''
+
+
+def probe(sid, cfg):
+    host = str(cfg.get("host") or "").strip()
+    svc = str(cfg.get("service") or "")
+    base = {
+        "server_id": int(sid) if str(sid).isdigit() else sid,
+        "name": cfg.get("name"),
+        "host": host or "local",
+        "service": svc or None,
+        "game_port": cfg.get("port"),
+    }
+    script = f"SVC={shlex.quote(svc)}\n{PROBE}"
+    if host in LOCAL_HOSTS:
+        cmd = ["bash", "-s"]
+    else:
+        user = cfg.get("user")
+        target = f"{user}@{host}" if user else host
+        cmd = ["ssh", "-i", SSH_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+               "-o", "StrictHostKeyChecking=accept-new", target, "bash -s"]
+    try:
+        r = subprocess.run(cmd, input=script, capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return {**base, "reachable": False, "error": "timeout"}
+    if r.returncode == 255 or not r.stdout.strip():
+        err = (r.stderr.strip().splitlines() or ["no output"])[-1]
+        return {**base, "reachable": False, "error": err}
+
+    kv = dict(line.split("=", 1) for line in r.stdout.splitlines() if "=" in line)
+
+    def num(k, cast=float):
+        try:
+            return cast(kv[k])
+        except (KeyError, ValueError):
+            return None
+
+    total, avail = num("mem_total_kb", int), num("mem_avail_kb", int)
+    thr = kv.get("throttled") or None
+    try:
+        thr_int = int(thr, 16) if thr else None
+    except ValueError:
+        thr_int = None
+    up = num("uptime_s")
+    return {
+        **base,
+        "reachable": True,
+        "cpu_pct": num("cpu_pct"),
+        "ncpu": num("ncpu", int),
+        "load1": num("load1"),
+        "ram_total_mb": round(total / 1024) if total else None,
+        "ram_used_mb": round((total - avail) / 1024) if total and avail is not None else None,
+        "temp_c": num("temp_c"),
+        "throttled": thr,
+        "throttled_now": bool(thr_int & 0xF) if thr_int is not None else None,
+        "throttled_since_boot": bool(thr_int & 0xF0000) if thr_int is not None else None,
+        "uptime_s": int(up) if up is not None else None,
+        "service_state": kv.get("service_state") or None,
+    }
+
+
+def main():
+    dry = "--dry-run" in sys.argv
+    nodes = json.load(open(NODES, encoding="utf-8"))
+    items = nodes.items() if isinstance(nodes, dict) else [(n.get("id"), n) for n in nodes]
+    items = [(sid, cfg) for sid, cfg in items if isinstance(cfg, dict)]
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(lambda it: probe(*it), items))
+
+    payload = {"checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "nodes": results}
+    try:
+        json.dump(payload, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+    if dry:
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+        return
+
+    for n in results:
+        if not n["reachable"]:
+            print(f"ติดต่อ {n['name']} ({n['host']}) ไม่ได้: {n.get('error')}")
+        elif n.get("throttled_now"):
+            print(f"{n['name']} กำลังถูกลดความเร็วเพราะร้อน ({n.get('temp_c')}°C)")
+
+    key = open(f"{D}/web_key").read().strip()
+    req = urllib.request.Request(
+        f"{WEB}/nodes/health", method="POST",
+        data=json.dumps(payload).encode(),
+        headers={"X-MC-Key": key, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print("backend ยังไม่มี /api/mc/nodes/health (ข้ามไปก่อน)")
+        else:
+            print("ส่งสุขภาพโหนดให้เว็บไม่ได้:", e)
+    except Exception as e:
+        print("ส่งสุขภาพโหนดให้เว็บไม่ได้:", e)
+
+
+if __name__ == "__main__":
+    main()

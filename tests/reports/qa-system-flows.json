@@ -1,0 +1,38 @@
+{
+  "suite": "QA E2E System Flows Suite",
+  "timestamp": "2026-10-17T21:02:32.243Z",
+  "totalTests": 5,
+  "passedTests": 5,
+  "results": [
+    {
+      "test": "FLOW-01: ตรวจสอบหน้าแรก (Home)",
+      "status": "passed",
+      "screen": "flow-01-home-page.png",
+      "detail": "หน้าแรกแสดงผลสมบูรณ์ กราฟิกและข้อมูลภาพรวมครบถ้วน"
+    },
+    {
+      "test": "FLOW-02: หน้ารายการเซิร์ฟเวอร์",
+      "status": "passed",
+      "screen": "flow-02-servers-display.png",
+      "detail": "แสดงการ์ดเซิร์ฟเวอร์ครบถ้วนพร้อมข้อมูลการเชื่อมต่อ"
+    },
+    {
+      "test": "FLOW-03: หน้าเข้าสู่ระบบ (Login)",
+      "status": "passed",
+      "screen": "flow-03-login-page.png",
+      "detail": "ฟอร์ม Login สมบูรณ์ มีช่อง Username, Password ครบถ้วน"
+    },
+    {
+      "test": "FLOW-04: หน้าประวัติการจอง (My Bookings)",
+      "status": "passed",
+      "screen": "flow-04-my-bookings-page.png",
+      "detail": "หน้าประวัติการจองแสดงรายการ วันที่ และสถานะการชำระเงินเรียบร้อย"
+    },
+    {
+      "test": "FLOW-05: Responsive Mobile UI (390×844)",
+      "status": "passed",
+      "screen": "flow-05-mobile-responsive.png",
+      "detail": "หน้าเว็บขนาด 390x844 แสดงผลสมบูรณ์ เนื้อหาจัดกึ่งกลางและไม่ล้นจอ"
+    }
+  ]
+}

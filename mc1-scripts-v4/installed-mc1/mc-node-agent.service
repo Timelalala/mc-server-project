@@ -1,0 +1,11 @@
+[Unit]
+Description=MC node command agent (admin panel start/stop/restart)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/mc-node-agent
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

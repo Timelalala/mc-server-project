@@ -1,0 +1,23 @@
+{
+  "suite": "QA User Bookings & Cancellation Suite",
+  "timestamp": "2026-10-17T21:02:10.638Z",
+  "totalTests": 3,
+  "passedTests": 3,
+  "results": [
+    {
+      "test": "UBK-01: ดึงประวัติการจองของผู้ใช้",
+      "status": "passed",
+      "detail": "ดึงรายการการจองสำเร็จ พบทั้งหมด 30 รายการ"
+    },
+    {
+      "test": "UBK-02: ยกเลิกการจอง Pending สำเร็จ",
+      "status": "passed",
+      "detail": "สร้างการจอง #62 และยกเลิกสำเร็จผ่าน API"
+    },
+    {
+      "test": "UBK-03: ป้องกันการยกเลิกการจองที่ชำระแล้ว",
+      "status": "passed",
+      "detail": "ระบบปฏิเสธการยกเลิกการจองที่ชำระแล้วด้วย status 404 (ถูกต้องตามกติกา)"
+    }
+  ]
+}

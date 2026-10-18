@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""mc-backup: Backup Minecraft worlds from nodes to MC1 storage.
+Usage:
+  mc-backup          # Backup all nodes in /etc/mc-slot/nodes.json
+  mc-backup <id>     # Backup specific node by server_id (e.g. mc-backup 1)
+"""
+import datetime
+import json
+import os
+import shlex
+import subprocess
+import sys
+
+NODES_FILE = "/etc/mc-slot/nodes.json"
+BACKUP_DIR = "/var/backups/minecraft"
+SSH_KEY = "/root/.ssh/mcnode_key"
+LOCAL_HOSTS = {"", "localhost", "127.0.0.1", "local"}
+
+
+def log(*args):
+    print(*args, flush=True)
+
+
+def backup_node(nid, node, timestamp):
+    name = node.get("name", f"Node-{nid}")
+    host = str(node.get("host") or "").strip()
+    server_dir = node.get("dir")
+    admin_world = node.get("admin_world", "world")
+
+    if not server_dir:
+        log(f"ข้าม {name} (ID {nid}): ไม่ได้ระบุ dir ใน nodes.json")
+        return False
+
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    tar_name = f"backup_node{nid}_{timestamp}.tar.gz"
+    local_path = os.path.join(BACKUP_DIR, tar_name)
+
+    log(f"กำลังสำรองข้อมูลโหนด: {name} ({host or 'local'})...")
+
+    # Target worlds: admin_world + w-user-*
+    # Fallback to admin_world, then world, then .
+    find_cmd = (
+        f'cd {shlex.quote(server_dir)} && '
+        f'items=$(find . -maxdepth 1 \\( -name {shlex.quote(admin_world)} -o -name "w-user-*" \\) -printf "%P\\n" 2>/dev/null); '
+        f'if [ -z "$items" ]; then items="{shlex.quote(admin_world)}"; fi; '
+    )
+
+    is_local = host in LOCAL_HOSTS
+    if is_local:
+        local_tar_cmd = (
+            f'{find_cmd}'
+            f'tar --warning=no-file-changed -czf {shlex.quote(local_path)} $items 2>/dev/null || '
+            f'tar --warning=no-file-changed -czf {shlex.quote(local_path)} world 2>/dev/null || '
+            f'tar --warning=no-file-changed -czf {shlex.quote(local_path)} .'
+        )
+        res = subprocess.run(["bash", "-c", local_tar_cmd], capture_output=True, text=True, timeout=300)
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            size_mb = os.path.getsize(local_path) / (1024 * 1024)
+            log(f"สำรองข้อมูล {name} สำเร็จ: {local_path} ({size_mb:.1f} MB)")
+            return True
+        else:
+            err = res.stderr.strip() or f"exit code {res.returncode}"
+            log(f"สำรองข้อมูล {name} ไม่สำเร็จ: {err}")
+            return False
+    else:
+        user = node.get("user")
+        if not user:
+            log(f"ข้าม {name}: เป็นโหนดทางไกลแต่ไม่ได้ระบุ user")
+            return False
+
+        remote_tar = f"/tmp/{tar_name}"
+        remote_tar_cmd = (
+            f'{find_cmd}'
+            f'tar --warning=no-file-changed -czf {shlex.quote(remote_tar)} $items 2>/dev/null || '
+            f'tar --warning=no-file-changed -czf {shlex.quote(remote_tar)} world 2>/dev/null || '
+            f'tar --warning=no-file-changed -czf {shlex.quote(remote_tar)} .'
+        )
+        target = f"{user}@{host}"
+        ssh_opts = ["ssh", "-i", SSH_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                    "-o", "StrictHostKeyChecking=accept-new"]
+
+        res = subprocess.run([*ssh_opts, target, f"bash -c {shlex.quote(remote_tar_cmd)}"],
+                             capture_output=True, text=True, timeout=300)
+        if res.returncode not in (0, 1):
+            err = res.stderr.strip() or f"exit code {res.returncode}"
+            log(f"สร้างไฟล์ archive บน {name} ไม่สำเร็จ: {err}")
+            return False
+
+        # Copy archive back to MC1 via SCP
+        scp_opts = ["scp", "-i", SSH_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                    "-o", "StrictHostKeyChecking=accept-new", f"{target}:{remote_tar}", local_path]
+        scp_res = subprocess.run(scp_opts, capture_output=True, text=True, timeout=300)
+
+        # Remove temp archive on remote node
+        subprocess.run([*ssh_opts, target, f"rm -f {shlex.quote(remote_tar)}"], capture_output=True)
+
+        if scp_res.returncode == 0 and os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            size_mb = os.path.getsize(local_path) / (1024 * 1024)
+            log(f"สำรองข้อมูล {name} สำเร็จ: {local_path} ({size_mb:.1f} MB)")
+            return True
+        else:
+            err = scp_res.stderr.strip() or "scp ล้มเหลว"
+            log(f"ดึงไฟล์ backup ของ {name} ไม่สำเร็จ: {err}")
+            return False
+
+
+def main():
+    target_id = sys.argv[1].strip() if len(sys.argv) > 1 and sys.argv[1].strip() not in ("all", "--all") else None
+
+    try:
+        nodes = json.load(open(NODES_FILE, encoding="utf-8"))
+    except Exception as e:
+        log("ไม่สามารถอ่านไฟล์ nodes.json ได้:", e)
+        sys.exit(1)
+
+    items = nodes.items() if isinstance(nodes, dict) else [(str(n.get("id")), n) for n in nodes]
+    nodes_dict = {str(k): v for k, v in items if isinstance(v, dict)}
+
+    if target_id:
+        if target_id not in nodes_dict:
+            log(f"ไม่พบ server_id {target_id} ใน nodes.json")
+            sys.exit(1)
+        target_nodes = [(target_id, nodes_dict[target_id])]
+    else:
+        target_nodes = list(nodes_dict.items())
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    success_count = 0
+    total = len(target_nodes)
+
+    for nid, node in target_nodes:
+        if backup_node(nid, node, timestamp):
+            success_count += 1
+
+    if success_count == total:
+        sys.exit(0)
+    else:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

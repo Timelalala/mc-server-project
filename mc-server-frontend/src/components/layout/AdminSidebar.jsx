@@ -7,7 +7,6 @@ import {
   Server,
   CalendarDays,
   BookOpen,
-  CreditCard,
   LogOut,
   ArrowLeft,
   ShieldCheck
@@ -27,7 +26,6 @@ const AdminSidebar = () => {
     { label: 'Dashboard', path: '/admin', icon: <LayoutDashboard className="w-4.5 h-4.5" /> },
     { label: 'จัดการเซิร์ฟเวอร์', path: '/admin/servers', icon: <Server className="w-4.5 h-4.5" /> },
     { label: 'รายการจอง', path: '/admin/bookings', icon: <BookOpen className="w-4.5 h-4.5" /> },
-    { label: 'ยืนยันชำระเงิน', path: '/admin/payments', icon: <CreditCard className="w-4.5 h-4.5" /> },
     { label: 'Time Slots', path: '/admin/time-slots', icon: <CalendarDays className="w-4.5 h-4.5" /> },
     { label: 'จัดการผู้ใช้', path: '/admin/users', icon: <Users className="w-4.5 h-4.5" /> },
   ];

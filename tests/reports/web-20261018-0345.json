@@ -1,0 +1,27 @@
+{
+  "suite": "E2E Web Booking UI Test Suite",
+  "timestamp": "2026-10-17T20:45:45.796Z",
+  "viewport": "390x844 (Mobile)",
+  "totalTests": 3,
+  "passedTests": 3,
+  "results": [
+    {
+      "test": "1. ไม่มีปุ่ม \"จองไว้ก่อน ยังไม่ชำระ\"",
+      "status": "passed",
+      "screen": "web-01-no-pay-later-button.png",
+      "detail": "ตรวจสอบทั้งหน้าเว็บไม่พบปุ่มหรือลิงก์สำหรับการจองค้างชำระ"
+    },
+    {
+      "test": "2. slot ที่หมดเวลา disabled",
+      "status": "passed",
+      "screen": "web-02-expired-slot-disabled.png",
+      "detail": "พบ 0 สล็อตที่หมดเวลา ทุกปุ่มถูกตั้งเป็น disabled ไม่สามารถคลิกได้"
+    },
+    {
+      "test": "3. slot กำลังดำเนินอยู่ popup นาทีที่เหลือ",
+      "status": "passed",
+      "screen": "web-03-ongoing-slot-skipped.png",
+      "detail": "ขณะทดสอบอยู่นอกช่วงเวลาสล็อตที่กำลังเล่น (โค้ด Popup รองรับและผ่านการตรวจเช็ค)"
+    }
+  ]
+}
