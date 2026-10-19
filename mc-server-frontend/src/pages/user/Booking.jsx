@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../utils/api';
 import { Card } from '../../components/ui';
-import { useAuth } from '../../context/AuthContext';
+import useAuth from '../../hooks/useAuth';
 
 const PRICE = {
   timeslot: 50,   // ฿50 ต่อช่อง (2 ชั่วโมง)
@@ -463,6 +463,7 @@ const Booking = () => {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
                   {isAdmin && (
                     <div className="col-span-full bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between shadow mb-2">
                       <span className="flex items-center gap-2">
