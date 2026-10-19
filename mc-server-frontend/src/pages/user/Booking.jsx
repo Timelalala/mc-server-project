@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../utils/api';
 import { Card } from '../../components/ui';
+import { useAuth } from '../../context/AuthContext';
 
 const PRICE = {
   timeslot: 50,   // ฿50 ต่อช่อง (2 ชั่วโมง)
@@ -69,6 +70,8 @@ const fmtDateRangeText = (startDateStr, endDateStr, daysList, count) => {
 const Booking = () => {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   // Mode state: 'timeslot' | 'fullday' | 'multiday'
   const [bookingMode, setBookingMode] = useState('timeslot');
@@ -228,20 +231,20 @@ const Booking = () => {
   };
 
   const toggleSlot = (slot) => {
-    if (
+    if (!isAdmin && (
       slot.status === 'booked' ||
       slot.status === 'expired' ||
       slot.status === 'too_short' ||
       slot.status === 'reserved' ||
       slot.canBook === false
-    ) {
+    )) {
       return;
     }
 
     const exists = selectedSlots.find(s => s.id === slot.id);
 
-    // ถ้ากำลังจะเลือก slot ที่สถานะเป็น ongoing (เริ่มแล้วแต่เหลือ >= 15 นาที) ให้เปิด popup ยืนยัน
-    if (!exists && slot.status === 'ongoing') {
+    // ถ้ากำลังจะเลือก slot ที่สถานะเป็น ongoing (เริ่มแล้วแต่เหลือ >= 15 นาที) และไม่ใช่ admin ให้เปิด popup ยืนยัน
+    if (!isAdmin && !exists && slot.status === 'ongoing') {
       setOngoingConfirmSlot(slot);
       return;
     }
@@ -460,19 +463,36 @@ const Booking = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+                  {isAdmin && (
+                    <div className="col-span-full bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between shadow mb-2">
+                      <span className="flex items-center gap-2">
+                        <span className="text-base">🛠️</span>
+                        <span><strong>โหมดทดสอบแอดมิน (Admin Test Mode):</strong> สล็อตทุกช่วงเวลาเปิดว่างให้กดทดสอบจองได้อิสระ</span>
+                      </span>
+                      <span className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 px-2 py-0.5 rounded text-[10px]">
+                        Role: Admin
+                      </span>
+                    </div>
+                  )}
+
                   {slots.map((slot) => {
                     const isSelected = selectedSlots.some(s => s.id === slot.id);
-                    const isBooked = slot.status === 'booked' || slot.status === 'reserved';
-                    const isExpired = slot.status === 'expired';
-                    const isTooShort = slot.status === 'too_short';
-                    const isOngoing = slot.status === 'ongoing';
-                    const isDisabled = isBooked || isExpired || isTooShort || slot.canBook === false;
+                    const isBooked = !isAdmin && (slot.status === 'booked' || slot.status === 'reserved');
+                    const isExpired = !isAdmin && slot.status === 'expired';
+                    const isTooShort = !isAdmin && slot.status === 'too_short';
+                    const isOngoing = !isAdmin && slot.status === 'ongoing';
+                    const isDisabled = !isAdmin && (isBooked || isExpired || isTooShort || slot.canBook === false);
 
                     let slotStyle = '';
                     let subLabel = '฿50 (2 ชม.)';
 
-                    if (isExpired) {
+                    if (isSelected) {
+                      slotStyle = 'border-[#7C3AED] text-[#c4b5fd] bg-[rgba(124,58,237,0.25)] shadow-lg relative cursor-pointer';
+                      subLabel = 'เลือกแล้ว';
+                    } else if (isAdmin) {
+                      slotStyle = 'border-[#6ee7b7]/60 text-[#6ee7b7] bg-transparent hover:bg-[#6ee7b7]/10 cursor-pointer';
+                      subLabel = 'ว่าง (ทดสอบ)';
+                    } else if (isExpired) {
                       slotStyle = 'border-white/10 text-white/30 opacity-40 cursor-not-allowed bg-[#0f0f1a]';
                       subLabel = 'หมดเวลา';
                     } else if (isBooked) {
@@ -481,12 +501,9 @@ const Booking = () => {
                     } else if (isTooShort) {
                       slotStyle = 'border-amber-900/30 text-amber-400/60 opacity-40 cursor-not-allowed bg-[#0f0f1a]';
                       subLabel = 'เหลือน้อยกว่า 15 นาที';
-                    } else if (isSelected) {
-                      slotStyle = 'border-[#7C3AED] text-[#c4b5fd] bg-[rgba(124,58,237,0.25)] shadow-lg relative cursor-pointer';
-                      subLabel = 'เลือกแล้ว';
                     } else if (isOngoing) {
-                      slotStyle = 'border-amber-500/60 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 cursor-pointer shadow-sm';
-                      subLabel = `เหลืออีก ${slot.minutesLeft} นาที`;
+                      slotStyle = 'border-[#6ee7b7]/60 text-[#6ee7b7] bg-[#6ee7b7]/5 hover:bg-[#6ee7b7]/15 cursor-pointer';
+                      subLabel = `฿50 (เหลือ ${slot.minutesLeft} น.)`;
                     } else {
                       slotStyle = 'border-[#6ee7b7]/60 text-[#6ee7b7] bg-transparent hover:bg-[#6ee7b7]/10 cursor-pointer';
                       subLabel = '฿50 (2 ชม.)';
@@ -527,7 +544,7 @@ const Booking = () => {
               {/* 14 Days Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
                 {fulldayDays.map((day) => {
-                  const isBooked = fullBookedDates.includes(day.value);
+                  const isBooked = !isAdmin && fullBookedDates.includes(day.value);
                   const isSelected = fullDayDate === day.value;
                   return (
                     <button

@@ -157,17 +157,18 @@ exports.createBooking = async (req, res) => {
       ? (reqAmount > 500 && Number.isInteger(reqAmount) ? reqAmount / 100 : reqAmount)
       : calculatedAmount;
 
-    // 3. Time Validation: ช่วงที่จบแล้วจองไม่ได้ และการจองกลางช่วงที่เหลือ < 15 นาที ห้ามจอง
+    // 3. Time Validation: ช่วงที่จบแล้วจองไม่ได้ และการจองกลางช่วงที่เหลือ < 15 นาที ห้ามจอง (ยกเว้น Admin ทดสอบ)
+    const isAdmin = req.user?.role === 'admin';
     const now = new Date();
     const startDt = new Date(computedStartTime.replace(' ', 'T') + '+07:00');
     const endDt = new Date(computedEndTime.replace(' ', 'T') + '+07:00');
 
-    if (endDt <= now) {
+    if (!isAdmin && endDt <= now) {
       await connection.rollback();
       return res.status(400).json({ message: 'ช่วงเวลานี้หมดเวลาแล้ว ไม่สามารถจองได้' });
     }
 
-    if (startDt <= now && endDt > now) {
+    if (!isAdmin && startDt <= now && endDt > now) {
       const minsLeft = Math.floor((endDt - now) / 60000);
       if (minsLeft < MIN_MINUTES_LEFT) {
         await connection.rollback();
@@ -178,8 +179,7 @@ exports.createBooking = async (req, res) => {
     }
 
     // 4. Time Overlap & Conflict Check (Server-side validation)
-    // กติกา: การจองที่ยังไม่ชำระไม่ทำให้ช่องเต็ม การจองที่ชำระแล้วทำให้เต็มทุกเซิร์ฟเวอร์ (BLOCK_SCOPE = 'all')
-    const isAdmin = req.user?.role === 'admin';
+    // กติกา: การจองที่ยังไม่ชำระไม่ทำให้ช่องเต็ม การจองที่ชำระแล้วทำให้เต็ม (BLOCK_SCOPE = 'server')
 
     let conflictQuery = `
       SELECT b.id, b.server_id, b.booking_type, b.start_time, b.end_time, b.payment_status 
