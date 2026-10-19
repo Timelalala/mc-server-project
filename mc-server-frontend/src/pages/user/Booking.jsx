@@ -440,7 +440,7 @@ const Booking = () => {
                       <span className="w-2.5 h-2.5 rounded bg-[#6ee7b7]" /> ว่าง
                     </span>
                     <span className="flex items-center gap-1.5 text-[#fde68a]">
-                      <span className="w-2.5 h-2.5 rounded bg-[#d97706]" /> กำลังเล่น
+                      <span className="w-2.5 h-2.5 rounded bg-[#d97706]" /> กำลังดำเนินอยู่ (เริ่มแล้ว)
                     </span>
                     <span className="flex items-center gap-1.5 text-[#c4b5fd]">
                       <span className="w-2.5 h-2.5 rounded bg-[#7C3AED]" /> เลือกแล้ว
