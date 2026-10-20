@@ -177,9 +177,9 @@ exports.getSlots = async (req, res) => {
     let bookingQuery = `
       SELECT b.id, b.server_id, b.start_time, b.end_time, b.payment_status, b.status, b.booking_type 
       FROM bookings b
-      LEFT JOIN users u ON b.user_id = u.id
-      WHERE (u.role IS NULL OR u.role != 'admin')
-        AND (b.payment_status = 'paid' OR b.status = 'confirmed')
+      WHERE (b.payment_status = 'paid' OR b.status = 'confirmed')
+        AND b.status != 'cancelled'
+        AND b.payment_status != 'cancelled'
         AND b.start_time <= ? 
         AND b.end_time >= ?`;
     const queryParams = [endOfDay, startOfDay];
@@ -269,21 +269,26 @@ exports.getSlots = async (req, res) => {
   }
 };
 
+const formatLocalDate = (d) => {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date(d));
+};
+
 // GET /api/servers/busy-dates
-// ดึงวันที่ถูกจองเต็มทั้งวันหรือมีช่วงเวลาทับซ้อน (ตาม BLOCK_SCOPE)
+// ดึงวันที่ถูกจองจริงจากผู้ใช้ที่ชำระเงินแล้ว (อิงตามเวลาปัจจุบัน ห้ามใช้วันในอดีต ตรวจสอบ user และเวลาจ่ายจริง)
 exports.getBusyDates = async (req, res) => {
   try {
     const { serverId } = req.query;
 
     let query = `
       SELECT b.id, b.server_id, b.booking_type,
-             DATE_FORMAT(b.start_time, '%Y-%m-%d') as start_date,
-             DATE_FORMAT(b.end_time, '%Y-%m-%d') as end_date,
-             b.start_time, b.end_time
+             b.start_time, b.end_time, b.amount, b.slip_file, b.slip_trans_ref,
+             b.omise_charge_id, b.updated_at as paid_at,
+             u.id as user_id, u.username
       FROM bookings b
-      LEFT JOIN users u ON b.user_id = u.id
-      WHERE (u.role IS NULL OR u.role != 'admin')
-        AND (b.payment_status = 'paid' OR b.status = 'confirmed')
+      JOIN users u ON b.user_id = u.id
+      WHERE (b.payment_status = 'paid' OR b.status = 'confirmed')
+        AND b.status != 'cancelled'
+        AND b.payment_status != 'cancelled'
         AND b.end_time > NOW()
     `;
     const params = [];
@@ -295,28 +300,44 @@ exports.getBusyDates = async (req, res) => {
     const [rows] = await db.query(query, params);
 
     const fullBookedDates = new Set();
+    const busyRanges = [];
+
     for (const r of rows) {
+      const startDateStr = formatLocalDate(r.start_time);
+      const endDateStr = formatLocalDate(r.end_time);
+
+      busyRanges.push({
+        id: r.id,
+        serverId: r.server_id,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        type: r.booking_type,
+        username: r.username,
+        paidAt: r.paid_at,
+        amount: r.amount,
+        hasSlip: Boolean(r.slip_file || r.slip_trans_ref)
+      });
+
       if (r.booking_type === 'fullday' || r.booking_type === 'multiday') {
-        const start = new Date(r.start_date);
-        const end = new Date(r.end_date);
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          const yyyy = d.getFullYear();
-          const mm = String(d.getMonth() + 1).padStart(2, '0');
-          const dd = String(d.getDate()).padStart(2, '0');
-          fullBookedDates.add(`${yyyy}-${mm}-${dd}`);
+        const [sy, sm, sd] = startDateStr.split('-').map(Number);
+        const [ey, em, ed] = endDateStr.split('-').map(Number);
+        const cur = new Date(sy, sm - 1, sd);
+        const last = new Date(ey, em - 1, ed);
+
+        while (cur <= last) {
+          const y = cur.getFullYear();
+          const m = String(cur.getMonth() + 1).padStart(2, '0');
+          const d = String(cur.getDate()).padStart(2, '0');
+          fullBookedDates.add(`${y}-${m}-${d}`);
+          cur.setDate(cur.getDate() + 1);
         }
       }
     }
 
     res.json({
       fullBookedDates: Array.from(fullBookedDates),
-      busyRanges: rows.map(r => ({
-        id: r.id,
-        serverId: r.server_id,
-        startDate: r.start_date,
-        endDate: r.end_date,
-        type: r.booking_type
-      }))
+      busyRanges,
+      currentTime: new Date().toISOString()
     });
   } catch (err) {
     console.error('getBusyDates error:', err);
@@ -360,3 +381,28 @@ exports.restartServer = async (req, res) => {
     res.status(500).json({ message: 'Failed to restart Minecraft server.' });
   }
 };
+
+// GET /api/servers/summary - สรุปสถานะเซิร์ฟเวอร์และยอดผู้เล่นออนไลน์รวมทั้งคลัสเตอร์
+exports.getServerSummary = async (req, res) => {
+  try {
+    const [servers] = await db.query(
+      'SELECT id, name, ip, status, current_players, max_players, mc_version, edition FROM servers'
+    );
+    const [sumResult] = await db.query(
+      'SELECT COALESCE(SUM(current_players), 0) as total_players FROM servers WHERE status = "online"'
+    );
+    const total_players = Number(sumResult[0]?.total_players || 0);
+
+    res.json({
+      success: true,
+      total_players,
+      total_servers: servers.length,
+      online_servers: servers.filter(s => s.status === 'online').length,
+      servers
+    });
+  } catch (err) {
+    console.error('getServerSummary error:', err);
+    res.status(500).json({ success: false, message: 'Error retrieving servers summary.' });
+  }
+};
+

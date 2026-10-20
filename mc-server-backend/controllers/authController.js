@@ -50,7 +50,10 @@ exports.login = async (req, res) => {
   }
 
   try {
-    const [users] = await db.query('SELECT * FROM users WHERE username = ?', [username]);
+    const [users] = await db.query(
+      'SELECT * FROM users WHERE username = ? OR email = ?',
+      [username, username]
+    );
     if (users.length === 0) {
       return res.status(400).json({ message: 'Invalid username or password.' });
     }
@@ -100,3 +103,91 @@ exports.me = async (req, res) => {
     res.status(500).json({ message: 'Server error retrieving profile.' });
   }
 };
+
+// POST /api/auth/verify-reset-email
+exports.verifyResetEmail = async (req, res) => {
+  const { email, identifier, username } = req.body;
+  const input = (identifier || email || username || '').trim();
+
+  if (!input) {
+    return res.status(400).json({ message: 'กรุณากรอกอีเมลหรือชื่อผู้ใช้' });
+  }
+
+  try {
+    const [users] = await db.query(
+      'SELECT id, username, email FROM users WHERE email = ? OR username = ?',
+      [input, input]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: `ไม่พบบัญชีผู้ใช้งาน "${input}" ในระบบ` });
+    }
+
+    const user = users[0];
+    res.json({
+      success: true,
+      message: `พบบัญชีผู้ใช้: ${user.username}`,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (err) {
+    console.error('verifyResetEmail error:', err);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการตรวจสอบอีเมล/ชื่อผู้ใช้' });
+  }
+};
+
+// POST /api/auth/reset-password
+exports.resetPassword = async (req, res) => {
+  const { email, username, identifier, newPassword, confirmPassword } = req.body;
+  const input = (identifier || email || username || '').trim();
+
+  if (!input || !newPassword) {
+    return res.status(400).json({ message: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
+  }
+
+  if (confirmPassword && newPassword !== confirmPassword) {
+    return res.status(400).json({ message: 'รหัสผ่านใหม่และการยืนยันไม่ตรงกัน' });
+  }
+
+  if (newPassword.length < 3) {
+    return res.status(400).json({ message: 'รหัสผ่านต้องมีความยาวอย่างน้อย 3 ตัวอักษร' });
+  }
+
+  try {
+    const [users] = await db.query(
+      'SELECT id, username, email FROM users WHERE email = ? OR username = ?',
+      [input, input]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: `ไม่พบบัญชีผู้ใช้งาน "${input}" ในระบบ` });
+    }
+
+    const user = users[0];
+
+    // เข้ารหัสผ่านใหม่ด้วย bcrypt
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // อัปเดตรหัสผ่านใหม่ลงฐานข้อมูลตาม id ที่พบ
+    const [updateResult] = await db.query(
+      'UPDATE users SET password = ? WHERE id = ?',
+      [hashedPassword, user.id]
+    );
+
+    console.log(`[ResetPassword] Updated password for user id ${user.id} (${user.username}). Affected rows: ${updateResult.affectedRows}`);
+
+    res.json({
+      success: true,
+      message: 'เปลี่ยนรหัสผ่านสำเร็จแล้ว กรุณาเข้าสู่ระบบด้วยรหัสผ่านใหม่',
+      username: user.username
+    });
+  } catch (err) {
+    console.error('resetPassword error:', err);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน' });
+  }
+};
+

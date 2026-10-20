@@ -3,6 +3,7 @@ import api from '../../utils/api';
 import { StatCard, Card } from '../../components/ui';
 import { Users, Server, CreditCard, BarChart3, Cpu } from 'lucide-react';
 import NetworkTrafficGraph from '../../components/admin/NetworkTrafficGraph';
+import { getSocket } from '../../hooks/useServerStatus';
 
 const Dashboard = () => {
   const [healthData, setHealthData] = useState(null);
@@ -32,19 +33,31 @@ const Dashboard = () => {
     }
   }, []);
 
-  // Fetch dashboard statistics & recent bookings
+  // Fetch dashboard statistics, summary & recent bookings
   const fetchDashboardData = useCallback(async () => {
     try {
-      const [statsRes, bookingsRes] = await Promise.allSettled([
+      const [statsRes, bookingsRes, summaryRes] = await Promise.allSettled([
         api.get('/admin/stats'),
-        api.get('/admin/bookings')
+        api.get('/admin/bookings'),
+        api.get('/servers/summary')
       ]);
+
+      let initialOnlineUsers = null;
+      if (summaryRes.status === 'fulfilled' && summaryRes.value?.data?.total_players != null) {
+        initialOnlineUsers = summaryRes.value.data.total_players;
+      }
 
       if (statsRes.status === 'fulfilled' && statsRes.value?.data) {
         const s = statsRes.value.data;
         setStats((prev) => ({
           ...prev,
+          onlineUsers: initialOnlineUsers ?? s.onlineUsers ?? s.total_players ?? prev.onlineUsers,
           todayBookings: s.activeBookings ?? s.totalBookings ?? prev.todayBookings
+        }));
+      } else if (initialOnlineUsers !== null) {
+        setStats((prev) => ({
+          ...prev,
+          onlineUsers: initialOnlineUsers
         }));
       }
 
@@ -54,6 +67,26 @@ const Dashboard = () => {
     } catch (err) {
       console.error('Failed to fetch dashboard stats:', err);
     }
+  }, []);
+
+  // Real-time Socket.IO listener for online_players_summary (MC1 - MC4)
+  useEffect(() => {
+    const socket = getSocket();
+
+    const handlePlayersSummary = (data) => {
+      if (data && typeof data.total === 'number') {
+        setStats((prev) => ({
+          ...prev,
+          onlineUsers: data.total
+        }));
+      }
+    };
+
+    socket.on('online_players_summary', handlePlayersSummary);
+
+    return () => {
+      socket.off('online_players_summary', handlePlayersSummary);
+    };
   }, []);
 
   // Set up polling interval every 15 seconds (15000ms)

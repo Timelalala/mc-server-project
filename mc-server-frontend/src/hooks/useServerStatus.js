@@ -7,7 +7,7 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ||
 let socket = null
 
 // ใช้ instance เดียวกันทั้งแอป ไม่สร้างใหม่ทุกครั้งที่เปลี่ยนหน้า
-function getSocket() {
+export function getSocket() {
   if (!socket) socket = io(SOCKET_URL, { autoConnect: true })
   return socket
 }

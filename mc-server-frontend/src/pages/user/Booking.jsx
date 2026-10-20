@@ -11,12 +11,13 @@ const PRICE = {
 };
 
 const MOCK_SLOTS = [
-  { id: 1, time: '08:00-10:00', status: 'available' },
-  { id: 2, time: '10:00-12:00', status: 'available' },
+  { id: 1, time: '09:00-11:00', status: 'available' },
+  { id: 2, time: '11:00-13:00', status: 'available' },
   { id: 3, time: '13:00-15:00', status: 'available' },
   { id: 4, time: '15:00-17:00', status: 'available' },
   { id: 5, time: '17:00-19:00', status: 'available' },
   { id: 6, time: '19:00-21:00', status: 'available' },
+  { id: 7, time: '21:00-23:00', status: 'available' },
 ];
 
 const MOCK_SERVERS = [
@@ -27,13 +28,21 @@ const MOCK_SERVERS = [
 ];
 
 // Helper to generate next N days
+// Helper to generate next N days strictly from current date (Asia/Bangkok), NEVER from the past
 const generateDays = (count) => {
   const result = [];
   const days = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
   const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+  // อิงตามเวลาปัจจุบันของประเทศไทย ห้ามมีเวลาในอดีตเด็ดขาด
+  const now = new Date();
+  const bangkokDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(now);
+  const [bY, bM, bD] = bangkokDateStr.split('-').map(Number);
+  const baseDate = new Date(bY, bM - 1, bD);
+
   for (let i = 0; i < count; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
+    const d = new Date(baseDate);
+    d.setDate(baseDate.getDate() + i);
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
@@ -84,17 +93,17 @@ const Booking = () => {
   const [currentServerId, setCurrentServerId] = useState(serverIdFromUrl);
   const [serverName, setServerName] = useState(initialServerName);
 
-  // Time slot mode states
+  // Time slot mode states (strictly current and future days)
   const timeslotDays = generateDays(7);
   const [selectedDateIndex, setSelectedDateIndex] = useState(0);
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [slots, setSlots] = useState(MOCK_SLOTS);
 
-  // Full day mode states
+  // Full day mode states (strictly 14 days ahead from current date)
   const fulldayDays = generateDays(14);
   const [fullDayDate, setFullDayDate] = useState(fulldayDays[0].value);
 
-  // Multi day mode states
+  // Multi day mode states (strictly 14 days ahead from current date)
   const multidayDays = generateDays(14);
   const [startDate, setStartDate] = useState(multidayDays[0].value);
   const [endDate, setEndDate] = useState(multidayDays[2].value);
@@ -104,7 +113,7 @@ const Booking = () => {
   const [fullBookedDates, setFullBookedDates] = useState([]);
   const [ongoingConfirmSlot, setOngoingConfirmSlot] = useState(null);
 
-  // ดึงรายการวันที่ถูกจองเต็มทั้งวันเพื่อบล็อกในโหมด fullday และ multiday
+  // ดึงรายการวันที่ถูกจองจริงและชำระเงินแล้วจากฐานข้อมูล (ห้าม mockup อิงจากเวลาปัจจุบัน)
   useEffect(() => {
     api.get(`/servers/busy-dates?serverId=${currentServerId}`)
       .then(res => {
@@ -115,42 +124,114 @@ const Booking = () => {
       .catch(() => {});
   }, [currentServerId]);
 
-  // Computed fields
-  const selectedDateObj = timeslotDays[selectedDateIndex] || timeslotDays[0];
-  const sortedSlots = [...selectedSlots].sort((a, b) => a.id - b.id);
+  // ฟังก์ชัน 1: ตรวจสอบว่าวันใดวันหนึ่งถูกจองเต็มทั้งวันจริงและชำระเงินแล้วหรือไม่
+  const checkRealFullDayBooked = (dateStr) => {
+    if (!dateStr || !fullBookedDates) return false;
+    return fullBookedDates.includes(dateStr);
+  };
 
-  // คำนวณ validEndDates ในโหมด multiday:
-  // กติกา: ตัวเลือกจองหลายวันไม่แสดงวันที่ข้ามวันเต็ม (วัน N+2 เต็มแล้วตัวเลือกจากวัน N หยุดที่ N+1)
-  const calculateValidEndDates = () => {
+  // ฟังก์ชัน: วันนี้ (เวลาไทย) และจำนวนชั่วโมงที่เหลือถึง 23:59 น.
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+  const getTodayHoursLeft = () => {
+    const endOfToday = new Date(`${todayStr}T23:59:59+07:00`);
+    return Math.max(0, (endOfToday - new Date()) / (1000 * 60 * 60));
+  };
+  // วันนี้ถือว่า "เวลาเหลือน้อย" เสมอ เพราะเลยเวลา 00:00 มาแล้ว จ่ายราคาเต็มวันแต่ได้ใช้ไม่ครบ 24 ชม.
+  const isLowTimeDay = (dateStr) => dateStr === todayStr;
+  const todayHoursLeft = getTodayHoursLeft();
+  const todayLeftText = todayHoursLeft >= 1
+    ? `${Math.floor(todayHoursLeft)} ชม. ${Math.floor((todayHoursLeft % 1) * 60)} นาที`
+    : `${Math.floor(todayHoursLeft * 60)} นาที`;
+
+  // ฟังก์ชัน 2: กรองวันเริ่มต้นสำหรับหน้าจองหลายวัน (ห้ามมีเวลาในอดีตเด็ดขาด และวันที่มีคนจองจริงต้องไม่มีวันนั้นในตัวเลือก)
+  const filterAvailableMultidayStartDates = (allDays, bookedDates, adminMode) => {
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+    return allDays.filter(day => {
+      // 1. ห้ามมีเวลาในอดีตมาทำเด็ดขาด ต้องเป็นเวลาปัจจุบันขึ้นไป
+      if (day.value < todayStr) return false;
+      // 2. ถ้ามีคนจองทั้งวันจริงและจ่ายแล้ว วันนั้นจะต้องไม่ปรากฏใน Dropdown สำหรับ User
+      if (!adminMode && bookedDates.includes(day.value)) {
+        return false;
+      }
+      return true;
+    });
+  };
+
+  // ฟังก์ชัน 3: กรองวันสิ้นสุดสำหรับหน้าจองหลายวัน (ห้ามเลือกข้ามหรือครอบคลุมวันที่มีคนจองจริงและจ่ายแล้ว)
+  const filterAvailableMultidayEndDates = (startVal, allDays, bookedDates, adminMode) => {
+    if (!startVal) return [];
+    if (!adminMode && bookedDates.includes(startVal)) return [];
+
+    const startIndex = allDays.findIndex(d => d.value === startVal);
+    if (startIndex === -1) return [];
+
     const list = [];
-    const startIndex = multidayDays.findIndex(d => d.value === startDate);
-    if (startIndex === -1) return multidayDays.filter(d => d.value >= startDate);
-
-    for (let i = startIndex; i < multidayDays.length; i++) {
-      const day = multidayDays[i];
-      // หากวันนั้นเต็มทั้งวัน ให้หยุดทันที ไม่ให้ข้ามวันเต็ม
-      if (fullBookedDates.includes(day.value)) {
+    for (let i = startIndex; i < allDays.length; i++) {
+      const day = allDays[i];
+      // สำหรับ User ทั่วไป หากพบวันที่มีการจองจริงและจ่ายแล้ว ให้หยุดทันที
+      if (!adminMode && bookedDates.includes(day.value)) {
         break;
       }
       list.push(day);
     }
-    return list.length > 0 ? list : [multidayDays[startIndex]];
+    return list;
   };
 
-  const validEndDates = calculateValidEndDates();
+  // รายการวันเริ่มต้นและวันสิ้นสุดที่สามารถเลือกได้จริง
+  const validStartDates = filterAvailableMultidayStartDates(multidayDays, fullBookedDates, isAdmin);
+  const validEndDates = filterAvailableMultidayEndDates(startDate, multidayDays, fullBookedDates, isAdmin);
+
+  // ปรับ startDate อัตโนมัติเมื่อ fullBookedDates เปลี่ยน หรือวันที่เลือกติดสถานะเต็ม (เฉพาะ User ทั่วไป)
+  useEffect(() => {
+    if (!isAdmin && validStartDates.length > 0) {
+      if (!startDate || fullBookedDates.includes(startDate) || !validStartDates.some(d => d.value === startDate)) {
+        setStartDate(validStartDates[0].value);
+      }
+    }
+  }, [fullBookedDates, validStartDates, startDate, isAdmin]);
+
+  // ปรับ fullDayDate อัตโนมัติในโหมด fullday หากวันที่เลือกอยู่เดิมถูกจองเต็ม (เฉพาะ User ทั่วไป)
+  useEffect(() => {
+    if (!isAdmin && fulldayDays.length > 0 && fullBookedDates.includes(fullDayDate)) {
+      const firstAvailable = fulldayDays.find(d => !fullBookedDates.includes(d.value));
+      if (firstAvailable) {
+        setFullDayDate(firstAvailable.value);
+      }
+    }
+  }, [fullBookedDates, fullDayDate, fulldayDays, isAdmin]);
+
+  // Computed fields
+  const selectedDateObj = timeslotDays[selectedDateIndex] || timeslotDays[0];
+  const sortedSlots = [...selectedSlots].sort((a, b) => a.id - b.id);
 
   // ปรับ endDate อัตโนมัติเมื่อ validEndDates เปลี่ยนและ endDate เดิมอยู่นอกช่วง
   useEffect(() => {
-    if (validEndDates.length > 0 && !validEndDates.some(d => d.value === endDate)) {
-      setEndDate(validEndDates[validEndDates.length - 1].value);
+    if (validEndDates.length > 0) {
+      if (!endDate || !validEndDates.some(d => d.value === endDate)) {
+        const preferredIndex = Math.min(2, validEndDates.length - 1);
+        setEndDate(validEndDates[preferredIndex].value);
+      }
     }
-  }, [startDate, fullBookedDates]);
+  }, [startDate, validEndDates, endDate]);
 
   // Multi day days count calculation
   const multiDayCount = Math.max(
     1,
     Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) + 1
   );
+
+  // ตรวจสอบความถูกต้องของช่วง multiday (Admin ได้สิทธิ์เลือกอิสระ ส่วน User ทั่วไปต้องไม่มีวันใดที่ติด fullBookedDates)
+  const isMultidayRangeValid = () => {
+    if (!startDate || !endDate || new Date(endDate) < new Date(startDate)) return false;
+    if (isAdmin) return true;
+    const startIndex = multidayDays.findIndex(d => d.value === startDate);
+    const endIndex = multidayDays.findIndex(d => d.value === endDate);
+    if (startIndex === -1 || endIndex === -1) return false;
+    for (let i = startIndex; i <= endIndex; i++) {
+      if (fullBookedDates.includes(multidayDays[i].value)) return false;
+    }
+    return true;
+  };
 
   // Total price calculation per mode
   let totalPrice = 0;
@@ -178,8 +259,8 @@ const Booking = () => {
   // Validation logic
   const canConfirm =
     (bookingMode === 'timeslot' && selectedSlots.length >= 1) ||
-    (bookingMode === 'fullday' && !!fullDayDate && !fullBookedDates.includes(fullDayDate)) ||
-    (bookingMode === 'multiday' && !!startDate && !!endDate && new Date(endDate) >= new Date(startDate));
+    (bookingMode === 'fullday' && !!fullDayDate && (isAdmin || !fullBookedDates.includes(fullDayDate))) ||
+    (bookingMode === 'multiday' && isMultidayRangeValid());
 
   // Fetch servers list on mount
   useEffect(() => {
@@ -545,29 +626,46 @@ const Booking = () => {
               {/* 14 Days Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
                 {fulldayDays.map((day) => {
-                  const isBooked = !isAdmin && fullBookedDates.includes(day.value);
+                  const isBooked = checkRealFullDayBooked(day.value);
                   const isSelected = fullDayDate === day.value;
+                  const isDisabled = !isAdmin && isBooked;
+                  const isLowTime = !isDisabled && isLowTimeDay(day.value);
                   return (
                     <button
                       key={day.value}
-                      disabled={isBooked}
+                      disabled={isDisabled}
                       onClick={() => setFullDayDate(day.value)}
                       className={`py-3.5 px-2 rounded-xl font-bold text-xs transition-all border text-center ${
-                        isBooked
+                        isDisabled
                           ? 'border-white/10 bg-[#0f0f1a] text-white/30 opacity-40 cursor-not-allowed'
+                          : isSelected && isLowTime
+                          ? 'border-amber-400 bg-amber-500/15 text-amber-200 shadow-lg scale-105 cursor-pointer'
                           : isSelected
                           ? 'border-[#7C3AED] bg-[#7C3AED]/25 text-white shadow-lg scale-105 cursor-pointer'
+                          : isLowTime
+                          ? 'border-amber-500/40 bg-[#0f0f1a] text-amber-300/80 hover:border-amber-400 cursor-pointer'
                           : 'border-[#2A2A3A] bg-[#0f0f1a] text-white/70 hover:border-[#7C3AED]/50 cursor-pointer'
                       }`}
                     >
                       <div>{day.label}</div>
-                      <div className="text-[10px] font-normal opacity-70 mt-1">
-                        {isBooked ? 'เต็มหมดแล้ว' : '฿200/วัน'}
+                      <div className="text-[10px] font-normal opacity-80 mt-1">
+                        {isDisabled ? 'เต็มหมดแล้ว' : isLowTime ? 'เวลาเหลือน้อย' : '฿200/วัน'}
                       </div>
                     </button>
                   );
                 })}
               </div>
+
+              {/* คำเตือนเลือกวันนี้: เวลาเหลือน้อย */}
+              {isLowTimeDay(fullDayDate) && !checkRealFullDayBooked(fullDayDate) && (
+                <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl p-4 flex items-start gap-3 text-xs text-amber-200">
+                  <span className="text-xl">⚠️</span>
+                  <span>
+                    <strong>วันนี้เวลาเหลือน้อย (เหลืออีกประมาณ {todayLeftText})</strong> ไม่แนะนำให้เลือก
+                    เพราะชำระราคาเต็มวันแต่ใช้งานได้ไม่ครบ 24 ชม. แนะนำให้เลือกจองวันอื่น หรือจองแบบรายช่วงเวลาแทน
+                  </span>
+                </div>
+              )}
 
               {/* Info Box */}
               <div className="bg-[#4C1D95]/20 border border-[#7C3AED]/40 rounded-xl p-4 flex items-center gap-3 text-xs text-[#c4b5fd]">
@@ -595,14 +693,25 @@ const Booking = () => {
                   <select
                     value={startDate}
                     onChange={(e) => handleStartDateChange(e.target.value)}
-                    className="w-full bg-[#0f0f1a] border border-[#2A2A3A] focus:border-[#7C3AED] text-white text-sm font-semibold rounded-xl p-3 outline-none transition-colors"
+                    disabled={validStartDates.length === 0}
+                    className="w-full bg-[#0f0f1a] border border-[#2A2A3A] focus:border-[#7C3AED] text-white text-sm font-semibold rounded-xl p-3 outline-none transition-colors disabled:opacity-50"
                   >
-                    {multidayDays.map((d) => (
-                      <option key={d.value} value={d.value}>
-                        วันที่ {d.dateNum} {d.monthName} ({d.dayName}.)
-                      </option>
-                    ))}
+                    {validStartDates.length === 0 ? (
+                      <option value="">ไม่มีวันที่ว่าง</option>
+                    ) : (
+                      validStartDates.map((d) => (
+                        <option key={d.value} value={d.value}>
+                          วันที่ {d.dateNum} {d.monthName} ({d.dayName}.){isLowTimeDay(d.value) ? ' — วันนี้ เวลาเหลือน้อย' : ''}
+                        </option>
+                      ))
+                    )}
                   </select>
+                  {isLowTimeDay(startDate) && (
+                    <p className="text-[11px] text-amber-300 flex items-start gap-1.5">
+                      <span>⚠️</span>
+                      <span>วันนี้เหลือเวลาอีกประมาณ {todayLeftText} ไม่แนะนำให้เริ่มวันนี้ ควรเลือกวันเริ่มต้นเป็นวันอื่น</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* End Date Dropdown */}
@@ -611,13 +720,18 @@ const Booking = () => {
                   <select
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full bg-[#0f0f1a] border border-[#2A2A3A] focus:border-[#7C3AED] text-white text-sm font-semibold rounded-xl p-3 outline-none transition-colors"
+                    disabled={validEndDates.length === 0}
+                    className="w-full bg-[#0f0f1a] border border-[#2A2A3A] focus:border-[#7C3AED] text-white text-sm font-semibold rounded-xl p-3 outline-none transition-colors disabled:opacity-50"
                   >
-                    {validEndDates.map((d) => (
-                      <option key={d.value} value={d.value}>
-                        วันที่ {d.dateNum} {d.monthName} ({d.dayName}.)
-                      </option>
-                    ))}
+                    {validEndDates.length === 0 ? (
+                      <option value="">ไม่มีวันที่ว่าง</option>
+                    ) : (
+                      validEndDates.map((d) => (
+                        <option key={d.value} value={d.value}>
+                          วันที่ {d.dateNum} {d.monthName} ({d.dayName}.)
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
               </div>

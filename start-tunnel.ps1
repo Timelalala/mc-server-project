@@ -1,5 +1,8 @@
 $hostIP = "10.250.85.16"
-$keyPath = "$env:USERPROFILE\.ssh\id_mc_tunnel"
+$keyPath = "$env:USERPROFILE\.ssh\id_ed25519"
+if (-not (Test-Path $keyPath)) {
+    $keyPath = "$env:USERPROFILE\.ssh\id_mc_tunnel"
+}
 
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "  MC Reverse SSH Tunnel Auto-Reconnect" -ForegroundColor Cyan

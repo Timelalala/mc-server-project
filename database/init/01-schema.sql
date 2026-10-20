@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS servers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(50) NOT NULL,
   ip VARCHAR(50) NOT NULL,
-  pi_host VARCHAR(50) NOT NULL,
+  pi_host VARCHAR(50) NOT NULL DEFAULT '10.250.85.16',
+  rcon_port INT DEFAULT 25575,
   status VARCHAR(20) DEFAULT 'online',
   current_players INT DEFAULT 0,
   max_players INT DEFAULT 20,
@@ -31,13 +32,13 @@ CREATE TABLE IF NOT EXISTS servers (
 );
 
 -- Seed servers (Pi #1 - Pi #4)
-INSERT INTO servers (id, name, ip, pi_host, status, current_players, max_players, edition, mc_version, mod_name, mod_version, description, icon, session_count) VALUES
-(1, 'Java Survival', '192.168.137.1', '192.168.137.1', 'online', 8, 20, 'java', '1.21', NULL, NULL, 'Vanilla Survival โลกธรรมดา เหมาะสำหรับผู้เล่นทุกระดับ', '⛏️', 8),
-(2, 'RLCraft', '192.168.137.11', '192.168.137.11', 'online', 4, 20, 'java', '1.12.2', 'RLCraft', '2.9.3', 'Survival สุดโหด มีระบบ Thirst, Hunger, Temperature และ Monster เยอะมาก', '💀', 4),
-(3, 'RL Dregora', '192.168.137.12', '192.168.137.12', 'online', 0, 20, 'java', '1.12.2', 'RLCraft + Dregora', '2.9.3', 'RLCraft รุ่น Dregora มี Biome และ Structure เพิ่มเติม กราฟิกสวยกว่าปกติ', '🐉', 0),
-(4, 'Pixelmon', '192.168.137.13', '192.168.137.13', 'online', 12, 20, 'java', '1.16.5', 'Pixelmon Mod', '9.1.11', 'เล่น Minecraft แบบ Pokemon จับ เทรน และต่อสู้กับ Pokemon ในโลก Minecraft', '⚡', 12)
+INSERT INTO servers (id, name, ip, pi_host, rcon_port, status, current_players, max_players, edition, mc_version, mod_name, mod_version, description, icon, session_count) VALUES
+(1, 'Java Survival', '146.190.201.118', '10.250.85.16', 25575, 'online', 0, 20, 'java', '1.21', NULL, NULL, 'Vanilla Survival โลกธรรมดา เหมาะสำหรับผู้เล่นทุกระดับ', '⛏️', 0),
+(2, 'RLCraft', '146.190.201.118', '10.250.85.16', 25576, 'online', 0, 20, 'java', '1.12.2', 'RLCraft', '2.9.3', 'Survival สุดโหด มีระบบ Thirst, Hunger, Temperature และ Monster เยอะมาก', '💀', 0),
+(3, 'RL Dregora', '146.190.201.118', '10.250.85.16', 25577, 'online', 0, 20, 'java', '1.12.2', 'RLCraft + Dregora', '2.9.3', 'RLCraft รุ่น Dregora มี Biome และ Structure เพิ่มเติม กราฟิกสวยกว่าปกติ', '🐉', 0),
+(4, 'Pixelmon', '146.190.201.118', '10.250.85.16', 25578, 'online', 0, 20, 'java', '1.16.5', 'Pixelmon Mod', '9.1.11', 'เล่น Minecraft แบบ Pokemon จับ เทรน และต่อสู้กับ Pokemon ในโลก Minecraft', '⚡', 0)
 ON DUPLICATE KEY UPDATE 
-  name=VALUES(name), ip=VALUES(ip), pi_host=VALUES(pi_host), 
+  name=VALUES(name), ip=VALUES(ip), pi_host=VALUES(pi_host), rcon_port=VALUES(rcon_port),
   edition=VALUES(edition), mc_version=VALUES(mc_version), 
   mod_name=VALUES(mod_name), mod_version=VALUES(mod_version), 
   description=VALUES(description), icon=VALUES(icon),

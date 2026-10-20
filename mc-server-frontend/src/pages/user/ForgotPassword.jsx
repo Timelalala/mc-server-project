@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import api from '../../utils/api';
 import { Card, Input } from '../../components/ui';
 
 const ForgotPassword = () => {
@@ -8,39 +9,63 @@ const ForgotPassword = () => {
   const [email, setEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [targetUsername, setTargetUsername] = useState('');
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  const handleStep1Submit = (e) => {
+  const handleStep1Submit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!email) {
-      return setError('กรุณากรอกอีเมล');
+    setSuccessMsg('');
+    const input = email.trim();
+    if (!input) {
+      return setError('กรุณากรอกอีเมลหรือชื่อผู้ใช้');
     }
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const res = await api.post('/auth/verify-reset-email', { identifier: input, email: input });
       setLoading(false);
       setStep(2);
-      setSuccessMsg('กรุณากำหนดรหัสผ่านใหม่');
-    }, 800);
+      const username = res.data.username || res.data.user?.username || input;
+      setTargetUsername(username);
+      setSuccessMsg(`พบบัญชีผู้ใช้: ${username} กรุณากำหนดรหัสผ่านใหม่`);
+    } catch (err) {
+      setLoading(false);
+      setError(err.response?.data?.message || 'ไม่พบบัญชีผู้ใช้งานที่ใช้อีเมลหรือชื่อผู้ใช้นี้');
+    }
   };
 
-  const handleStep2Submit = (e) => {
+  const handleStep2Submit = async (e) => {
     e.preventDefault();
     setError('');
+    if (!newPassword || !confirmPassword) {
+      return setError('กรุณากรอกรหัสผ่านใหม่ให้ครบถ้วน');
+    }
     if (newPassword !== confirmPassword) {
       return setError('รหัสผ่านใหม่และการยืนยันไม่ตรงกัน');
     }
+    if (newPassword.length < 3) {
+      return setError('รหัสผ่านต้องมีความยาวอย่างน้อย 3 ตัวอักษร');
+    }
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const res = await api.post('/auth/reset-password', {
+        identifier: email.trim(),
+        email: email.trim(),
+        newPassword,
+        confirmPassword
+      });
       setLoading(false);
-      setSuccessMsg('เปลี่ยนรหัสผ่านสำเร็จแล้ว! กำลังนำคุณไปหน้าเข้าสู่ระบบ...');
+      setSuccessMsg(res.data.message || 'เปลี่ยนรหัสผ่านสำเร็จแล้ว! กำลังนำคุณไปหน้าเข้าสู่ระบบ...');
       setTimeout(() => {
         navigate('/login');
       }, 1500);
-    }, 1000);
+    } catch (err) {
+      setLoading(false);
+      setError(err.response?.data?.message || 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน');
+    }
   };
 
   return (
@@ -64,6 +89,12 @@ const ForgotPassword = () => {
         <Card className="bg-[#1a1a2e] border border-[#2A2A3A] rounded-2xl p-8 shadow-2xl">
           <h2 className="text-2xl font-bold text-white mb-6 text-center">Forgot Password</h2>
 
+          {targetUsername && step === 2 && (
+            <div className="bg-[#7C3AED]/20 border border-[#7C3AED]/50 rounded-xl p-3 text-xs text-[#A78BFA] mb-4 text-center">
+              บัญชี: <strong className="text-white">{targetUsername}</strong>
+            </div>
+          )}
+
           {error && (
             <div className="bg-[#450A0A] border border-[#DC2626] rounded-xl p-3.5 text-xs text-[#FCA5A5] mb-4">
               {error}
@@ -79,12 +110,12 @@ const ForgotPassword = () => {
           {step === 1 ? (
             <form onSubmit={handleStep1Submit} className="space-y-5">
               <Input
-                label="Email"
-                type="email"
+                label="Email หรือ Username"
+                type="text"
                 name="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="กรอก Email ที่ใช้สมัครบัญชี"
+                placeholder="กรอก Email หรือ Username ที่ใช้สมัครบัญชี"
                 required
                 className="[&_input]:bg-[#0f0f1a] [&_input]:rounded-xl [&_input]:border-[#2A2A3A]"
               />

@@ -50,9 +50,12 @@ const upload = multer({
 router.post('/auth/register', authController.register);
 router.post('/auth/login', authController.login);
 router.get('/auth/me', verifyToken, authController.me);
+router.post('/auth/verify-reset-email', authController.verifyResetEmail);
+router.post('/auth/reset-password', authController.resetPassword);
 
 // --- Server & Time Slot Routes (User and Admin accessible) ---
 router.get('/servers', serverController.getServers);
+router.get('/servers/summary', serverController.getServerSummary);
 router.get('/servers/busy-dates', serverController.getBusyDates);
 router.get('/servers/:id/slots', serverController.getSlots);
 router.get('/servers/:id/session-count', verifyToken, bookingController.getSessionCount);

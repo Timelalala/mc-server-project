@@ -57,10 +57,10 @@ async function processPaymentSuccess(connection, bookingId, chargeId = null) {
   // ตามกติกา BLOCK_SCOPE = 'all': ชำระแล้วเต็มทุกเซิร์ฟเวอร์
   let paidConflictQuery = `
     SELECT b.id, b.server_id FROM bookings b
-    LEFT JOIN users u ON b.user_id = u.id
     WHERE b.id != ? 
-      AND (u.role IS NULL OR u.role != 'admin')
       AND (b.payment_status = 'paid' OR b.status = 'confirmed')
+      AND b.status NOT IN ('cancelled', 'completed')
+      AND b.end_time > NOW()
       AND b.start_time < ? 
       AND b.end_time > ? 
     FOR UPDATE`;
@@ -69,11 +69,11 @@ async function processPaymentSuccess(connection, bookingId, chargeId = null) {
   if (BLOCK_SCOPE !== 'all') {
     paidConflictQuery = `
       SELECT b.id, b.server_id FROM bookings b
-      LEFT JOIN users u ON b.user_id = u.id
       WHERE b.server_id = ? 
         AND b.id != ? 
-        AND (u.role IS NULL OR u.role != 'admin')
         AND (b.payment_status = 'paid' OR b.status = 'confirmed')
+        AND b.status NOT IN ('cancelled', 'completed')
+        AND b.end_time > NOW()
         AND b.start_time < ? 
         AND b.end_time > ? 
       FOR UPDATE`;

@@ -26,10 +26,13 @@ async function getServerStatus(serverId) {
       [serverId]
     );
 
-    let current = 0;
-    let max = 20;
+    // อ่านจำนวนผู้เล่นปัจจุบันจากตาราง servers (ซึ่งถูกอัปเดตแบบเรียลไทม์โดย RCON Polling Worker)
+    const [serverRows] = await db.query('SELECT current_players, max_players FROM servers WHERE id = ?', [serverId]);
+    let current = serverRows[0]?.current_players || 0;
+    let max = serverRows[0]?.max_players || 20;
 
-    if (activeBookings && activeBookings.length > 0) {
+    // กรณีไม่มีข้อมูลจาก RCON แต่มี active booking ให้ตรวจสอบ fallback
+    if (current === 0 && activeBookings && activeBookings.length > 0) {
       const activeBooking = activeBookings[0];
       let players = [];
       try {
@@ -39,7 +42,9 @@ async function getServerStatus(serverId) {
       } catch (e) {
         players = [];
       }
-      current = Array.isArray(players) ? players.length : 0;
+      if (Array.isArray(players) && players.length > 0) {
+        current = players.length;
+      }
     }
 
     return { serverId, status: 'online', current, max, isFull: current >= max, timestamp: Date.now() };

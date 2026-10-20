@@ -180,28 +180,30 @@ exports.createBooking = async (req, res) => {
 
     // 4. Time Overlap & Conflict Check (Server-side validation)
     // กติกา: การจองที่ยังไม่ชำระไม่ทำให้ช่องเต็ม การจองที่ชำระแล้วทำให้เต็ม (BLOCK_SCOPE = 'server')
+    // ตรวจเฉพาะช่วงเวลาที่ยังเหลืออยู่ (ตั้งแต่ตอนนี้เป็นต้นไป) และไม่นับการจองที่จบไปแล้วในอดีต
+    const conflictStart = startDt > now ? startDt : now;
 
     let conflictQuery = `
       SELECT b.id, b.server_id, b.booking_type, b.start_time, b.end_time, b.payment_status 
       FROM bookings b
-      LEFT JOIN users u ON b.user_id = u.id
       WHERE b.id != 0
-        AND (u.role IS NULL OR u.role != 'admin')
         AND (b.payment_status = 'paid' OR b.status = 'confirmed')
+        AND b.status NOT IN ('cancelled', 'completed')
+        AND b.end_time > NOW()
         AND b.start_time < ? 
         AND b.end_time > ? 
       FOR UPDATE`;
-    const conflictParams = [computedEndTime, computedStartTime];
+    const conflictParams = [endDt, conflictStart];
 
     if (BLOCK_SCOPE !== 'all') {
       conflictQuery = `
         SELECT b.id, b.server_id, b.booking_type, b.start_time, b.end_time, b.payment_status 
         FROM bookings b
-        LEFT JOIN users u ON b.user_id = u.id
         WHERE b.server_id = ?
           AND b.id != 0
-          AND (u.role IS NULL OR u.role != 'admin')
           AND (b.payment_status = 'paid' OR b.status = 'confirmed')
+          AND b.status NOT IN ('cancelled', 'completed')
+          AND b.end_time > NOW()
           AND b.start_time < ? 
           AND b.end_time > ? 
         FOR UPDATE`;
@@ -212,8 +214,11 @@ exports.createBooking = async (req, res) => {
 
     if (!isAdmin && conflicts.length > 0) {
       await connection.rollback();
+      const isDayBooking = bookingType === 'fullday' || bookingType === 'multiday';
       return res.status(409).json({
-        message: 'ช่วงเวลานี้ถูกจองและชำระเงินสำเร็จไปแล้ว กรุณาเลือกช่วงเวลาอื่น',
+        message: isDayBooking
+          ? 'วันที่เลือกมีผู้ใช้อื่นจองและชำระเงินในบางช่วงเวลาแล้ว กรุณาเลือกจองวันอื่น'
+          : 'ช่วงเวลานี้ถูกจองและชำระเงินสำเร็จไปแล้ว กรุณาเลือกช่วงเวลาอื่น',
         conflictType: 'confirmed_overlap'
       });
     }
@@ -321,15 +326,42 @@ exports.getMyBookings = async (req, res) => {
       JOIN servers s ON b.server_id = s.id
       LEFT JOIN time_slots t ON b.slot_id = t.id
       WHERE b.user_id = ?
+        AND b.status NOT IN ('cancelled', 'expired')
+        AND (b.payment_status IS NULL OR b.payment_status NOT IN ('cancelled', 'expired'))
       ORDER BY b.created_at DESC
     `;
     const [bookings] = await db.query(query, [user_id]);
-    res.json(bookings.map(b => ({
-      ...b,
-      ip: b.slot_status === 'started' ? b.ip : null,
-      online_players: JSON.parse(b.online_players || '[]'),
-      seen_players: JSON.parse(b.seen_players || '[]'),
-    })));
+    const now = Date.now();
+
+    const formattedBookings = bookings.map(b => {
+      const isExpired = b.end_time ? new Date(b.end_time).getTime() <= now : false;
+
+      // หากหมดเวลาแล้ว (end_time <= now) ให้ปรับสถานะเป็น completed / stopped และซ่อนค่า IP ทันที
+      const finalStatus = isExpired && (b.status === 'confirmed' || b.status === 'completed')
+        ? 'completed'
+        : b.status;
+      const finalSlotStatus = isExpired ? 'stopped' : b.slot_status;
+      const finalIp = (!isExpired && b.slot_status === 'started') ? b.ip : null;
+
+      // ซิงค์ปรับปรุงฐานข้อมูลหากพบว่าหมดเวลาแต่สถานะยังเป็น confirmed หรือ started
+      if (isExpired && (b.status === 'confirmed' || b.slot_status === 'started')) {
+        db.query(
+          `UPDATE bookings SET status = 'completed', slot_status = 'stopped' WHERE id = ?`,
+          [b.id]
+        ).catch(e => console.error(`Error updating expired booking ${b.id}:`, e));
+      }
+
+      return {
+        ...b,
+        status: finalStatus,
+        slot_status: finalSlotStatus,
+        ip: finalIp,
+        online_players: JSON.parse(b.online_players || '[]'),
+        seen_players: JSON.parse(b.seen_players || '[]'),
+      };
+    });
+
+    res.json(formattedBookings);
   } catch (err) {
     console.error('getMyBookings error:', err);
     res.status(500).json({ message: 'Error retrieving your bookings.' });

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import api from '../../utils/api';
 import { Copy, Check, Clock, Users } from 'lucide-react';
+import { getSocket } from '../../hooks/useServerStatus';
 
 const REFRESH_MS = 20000; // ask the backend for new slot status every 20 s
 
@@ -78,54 +79,59 @@ const PlayerNames = ({ names, emptyText, isOnline = false }) => {
   );
 };
 
-const MyBookings = () => {
-  const [bookings, setBookings] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [copiedId, setCopiedId] = useState(null);
-  const [now, setNow] = useState(Date.now());
+const BookingCard = ({ b, now, copyIp, copiedId, fetchBookingStatus }) => {
+  const [isExpired, setIsExpired] = useState(false);
+  const start = b.start_time ? new Date(b.start_time) : null;
+  const end = b.end_time ? new Date(b.end_time) : null;
+  const slot = b.slot_status || 'waiting';
 
-  const fetchBookings = useCallback(async () => {
-    try {
-      const res = await api.get('/bookings/my');
-      setBookings(Array.isArray(res.data) ? res.data : []);
-      setError('');
-    } catch (err) {
-      setError('โหลดรายการจองไม่สำเร็จ ลองรีเฟรชหน้านี้อีกครั้ง');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const remainingTime = end ? end.getTime() - now : 0;
 
   useEffect(() => {
-    fetchBookings();
-    const poll = setInterval(fetchBookings, REFRESH_MS);
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => {
-      clearInterval(poll);
-      clearInterval(tick);
-    };
-  }, [fetchBookings]);
-
-  const copyIp = async (ip, id) => {
-    try {
-      await navigator.clipboard.writeText(ip);
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch (e) {
-      setCopiedId(null);
+    if (remainingTime <= 0) {
+      // ซ่อนข้อมูล IP หรือสั่ง refresh ข้อมูลสถานะใหม่จากเซิร์ฟเวอร์
+      setIsExpired(true);
+      fetchBookingStatus();
     }
-  };
+  }, [remainingTime, fetchBookingStatus]);
 
-  const renderConnectionBox = (b) => {
-    const start = b.start_time ? new Date(b.start_time) : null;
-    const end = b.end_time ? new Date(b.end_time) : null;
-    const slot = b.slot_status || 'waiting';
+  const hasEnded = slot === 'ended' || (slot === 'started' && (isExpired || remainingTime <= 0));
+  const isConfirmed = b.status === 'confirmed';
 
-    // 1. สถานะ: กำลังเล่น (started)
-    if (slot === 'started' && b.ip) {
+  let badgeText = 'รอยืนยัน';
+  let badgeStyle = 'bg-[#78350F] border-[#D97706] text-[#FDE68A]'; // สีเหลืองอำพัน
+
+  if (isConfirmed) {
+    if (hasEnded) {
+      badgeText = 'จบแล้ว';
+      badgeStyle = 'bg-[#0f0f1a] border-[#2A2A3A] text-white/50'; // สีเทา
+    } else if (slot === 'started') {
+      badgeText = 'กำลังเล่น';
+      badgeStyle = 'bg-[#052E16] border-[#059669] text-[#6EE7B7]'; // สีเขียว
+    } else {
+      if (remainingTime <= 0) {
+        badgeText = 'หมดเวลา';
+        badgeStyle = 'bg-[#0f0f1a] border-[#2A2A3A] text-white/50'; // สีเทา
+      } else {
+        badgeText = 'รอเริ่ม';
+        badgeStyle = 'bg-[#78350F] border-[#D97706] text-[#FDE68A]'; // สีเหลืองอำพัน
+      }
+    }
+  } else {
+    if (remainingTime <= 0) {
+      badgeText = 'หมดเวลา';
+      badgeStyle = 'bg-[#0f0f1a] border-[#2A2A3A] text-white/50'; // สีเทา
+    } else {
+      badgeText = 'รอยืนยัน';
+      badgeStyle = 'bg-[#78350F] border-[#D97706] text-[#FDE68A]'; // สีเหลืองอำพัน
+    }
+  }
+
+  const renderConnectionBox = () => {
+    // 1. สถานะ: กำลังเล่น (started) และยังไม่หมดเวลา
+    if (slot === 'started' && b.ip && !hasEnded) {
       const totalMinutes = start && end ? Math.max(1, (end - start) / 60000) : 1;
-      const leftMinutes = end ? Math.max(0, Math.ceil((end - now) / 60000)) : 0;
+      const leftMinutes = end ? Math.max(0, Math.ceil(remainingTime / 60000)) : 0;
       const barColor = getBarColor(leftMinutes);
 
       return (
@@ -210,8 +216,8 @@ const MyBookings = () => {
       );
     }
 
-    // 2. สถานะ: จบแล้ว (ended)
-    if (slot === 'ended') {
+    // 2. สถานะ: จบแล้ว (ended) หรือ หมดเวลาแล้ว
+    if (hasEnded) {
       return (
         <div className="space-y-4">
           <div className="bg-[#0f0f1a] border border-[#2A2A3A] rounded-xl p-5 sm:p-6 space-y-2">
@@ -242,13 +248,13 @@ const MyBookings = () => {
 
     // 3. สถานะ: รอเริ่ม (waiting) หรือ หมดเวลา
     const startsIn = start ? start.getTime() - now : null;
-    const isExpired = end ? now >= end.getTime() : false;
+    const isSlotExpired = end ? remainingTime <= 0 : false;
 
     return (
       <div className="space-y-4">
         {/* กล่องการเชื่อมต่อ (รอเริ่ม หรือ หมดเวลา) */}
         <div className="bg-[#0f0f1a] border border-[#2A2A3A] rounded-xl p-6 text-center space-y-3">
-          {isExpired ? (
+          {isSlotExpired ? (
             <p className="text-sm sm:text-base font-semibold text-white/80">
               รอบนี้หมดเวลาแล้วโดยที่ server ไม่ได้เปิด กรุณาติดต่อแอดมิน
             </p>
@@ -280,7 +286,7 @@ const MyBookings = () => {
         </div>
 
         {/* ส่วน "ใครเข้าเล่นได้บ้าง" (ซ่อนเมื่อหมดเวลา) */}
-        {!isExpired && (
+        {!isSlotExpired && (
           <div className="bg-[#0f0f1a] border border-[#2A2A3A] rounded-xl p-4 sm:p-5 space-y-1.5">
             <h4 className="text-sm font-bold text-white flex items-center gap-2">
               <Users size={16} className="text-[#A78BFA]" />
@@ -293,6 +299,101 @@ const MyBookings = () => {
         )}
       </div>
     );
+  };
+
+  return (
+    <div
+      className={`bg-[#1a1a2e] rounded-2xl p-5 sm:p-6 border transition-all ${
+        slot === 'started' && !hasEnded
+          ? 'border-[#059669]/60 shadow-lg shadow-[#059669]/5'
+          : 'border-[#2A2A3A]'
+      }`}
+    >
+      {/* Header การ์ด: ชื่อ Server, วันเวลา, ป้ายสถานะ */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#2A2A3A] pb-4 mb-5">
+        <div>
+          <h3 className="text-xl font-bold text-white">{b.server_name}</h3>
+          <p className="text-xs text-white/50 mt-1">
+            {fmtBookingPeriod(start, end)}
+          </p>
+        </div>
+        <span className={`border text-xs px-3 py-1 rounded-full font-bold tracking-wide ${badgeStyle}`}>
+          {badgeText}
+        </span>
+      </div>
+
+      {isConfirmed ? (
+        renderConnectionBox()
+      ) : remainingTime <= 0 ? (
+        <div className="bg-[#0f0f1a] border border-[#2A2A3A] p-5 sm:p-6 rounded-xl text-center space-y-1.5">
+          <p className="text-sm sm:text-base font-semibold text-white/80">
+            เลยเวลาจองแล้ว การจองนี้ยังไม่ได้รับการยืนยัน
+          </p>
+        </div>
+      ) : (
+        <div className="bg-[#78350F]/20 border border-[#D97706]/40 p-5 rounded-xl text-center space-y-1.5">
+          <p className="text-sm font-bold text-[#FDE68A]">กำลังรอแอดมินยืนยันการชำระเงิน</p>
+          <p className="text-xs text-white/50">
+            เมื่อยืนยันแล้ว ระบบจะแสดงเวลานับถอยหลัง และ IP จะขึ้นเมื่อถึงเวลาเริ่ม
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MyBookings = () => {
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [copiedId, setCopiedId] = useState(null);
+  const [now, setNow] = useState(Date.now());
+
+  const fetchBookings = useCallback(async () => {
+    try {
+      const res = await api.get('/bookings/my');
+      const list = Array.isArray(res.data) ? res.data : [];
+      // ซ่อนรายการที่ลูกค้ายกเลิก/หมดอายุการชำระเงินออกเด็ดขาด
+      const HIDDEN = ['cancelled', 'expired'];
+      setBookings(list.filter(b => !HIDDEN.includes(b.status) && !HIDDEN.includes(b.payment_status)));
+      setError('');
+    } catch (err) {
+      setError('โหลดรายการจองไม่สำเร็จ ลองรีเฟรชหน้านี้อีกครั้ง');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Alias สำหรับเรียกฟังก์ชันรีเฟรชสถานะการจอง
+  const fetchBookingStatus = fetchBookings;
+
+  useEffect(() => {
+    fetchBookings();
+    const poll = setInterval(fetchBookings, REFRESH_MS);
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+
+    // รับอีเวนต์แจ้งเตือนสถานะการจองเปลี่ยนจาก Socket.IO
+    const s = getSocket();
+    const handleStatusUpdate = () => {
+      fetchBookings();
+    };
+    s.on('booking_status_updated', handleStatusUpdate);
+
+    return () => {
+      clearInterval(poll);
+      clearInterval(tick);
+      s.off('booking_status_updated', handleStatusUpdate);
+    };
+  }, [fetchBookings]);
+
+  const copyIp = async (ip, id) => {
+    try {
+      await navigator.clipboard.writeText(ip);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (e) {
+      setCopiedId(null);
+    }
   };
 
   return (
@@ -320,81 +421,16 @@ const MyBookings = () => {
         </div>
       ) : (
         <div className="space-y-6">
-          {bookings.map((b) => {
-            const isConfirmed = b.status === 'confirmed';
-            const slot = b.slot_status || 'waiting';
-            const start = b.start_time ? new Date(b.start_time) : null;
-            const end = b.end_time ? new Date(b.end_time) : null;
-            const isExpired = end ? now >= end.getTime() : false;
-
-            let badgeText = 'รอยืนยัน';
-            let badgeStyle = 'bg-[#78350F] border-[#D97706] text-[#FDE68A]'; // สีเหลืองอำพัน
-
-            if (isConfirmed) {
-              if (slot === 'started') {
-                badgeText = 'กำลังเล่น';
-                badgeStyle = 'bg-[#052E16] border-[#059669] text-[#6EE7B7]'; // สีเขียว
-              } else if (slot === 'ended') {
-                badgeText = 'จบแล้ว';
-                badgeStyle = 'bg-[#0f0f1a] border-[#2A2A3A] text-white/50'; // สีเทา
-              } else {
-                if (isExpired) {
-                  badgeText = 'หมดเวลา';
-                  badgeStyle = 'bg-[#0f0f1a] border-[#2A2A3A] text-white/50'; // สีเทา
-                } else {
-                  badgeText = 'รอเริ่ม';
-                  badgeStyle = 'bg-[#78350F] border-[#D97706] text-[#FDE68A]'; // สีเหลืองอำพัน
-                }
-              }
-            } else {
-              if (isExpired) {
-                badgeText = 'หมดเวลา';
-                badgeStyle = 'bg-[#0f0f1a] border-[#2A2A3A] text-white/50'; // สีเทา
-              } else {
-                badgeText = 'รอยืนยัน';
-                badgeStyle = 'bg-[#78350F] border-[#D97706] text-[#FDE68A]'; // สีเหลืองอำพัน
-              }
-            }
-
-            return (
-              <div
-                key={b.id}
-                className={`bg-[#1a1a2e] rounded-2xl p-5 sm:p-6 border transition-all ${
-                  slot === 'started' ? 'border-[#059669]/60 shadow-lg shadow-[#059669]/5' : 'border-[#2A2A3A]'
-                }`}
-              >
-                {/* Header การ์ด: ชื่อ Server, วันเวลา, ป้ายสถานะ */}
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#2A2A3A] pb-4 mb-5">
-                  <div>
-                    <h3 className="text-xl font-bold text-white">{b.server_name}</h3>
-                    <p className="text-xs text-white/50 mt-1">
-                      {fmtBookingPeriod(start, end)}
-                    </p>
-                  </div>
-                  <span className={`border text-xs px-3 py-1 rounded-full font-bold tracking-wide ${badgeStyle}`}>
-                    {badgeText}
-                  </span>
-                </div>
-
-                {isConfirmed ? (
-                  renderConnectionBox(b)
-                ) : isExpired ? (
-                  <div className="bg-[#0f0f1a] border border-[#2A2A3A] p-5 sm:p-6 rounded-xl text-center space-y-1.5">
-                    <p className="text-sm sm:text-base font-semibold text-white/80">
-                      เลยเวลาจองแล้ว การจองนี้ยังไม่ได้รับการยืนยัน
-                    </p>
-                  </div>
-                ) : (
-                  <div className="bg-[#78350F]/20 border border-[#D97706]/40 p-5 rounded-xl text-center space-y-1.5">
-                    <p className="text-sm font-bold text-[#FDE68A]">กำลังรอแอดมินยืนยันการชำระเงิน</p>
-                    <p className="text-xs text-white/50">
-                      เมื่อยืนยันแล้ว ระบบจะแสดงเวลานับถอยหลัง และ IP จะขึ้นเมื่อถึงเวลาเริ่ม
-                    </p>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {bookings.map((b) => (
+            <BookingCard
+              key={b.id}
+              b={b}
+              now={now}
+              copyIp={copyIp}
+              copiedId={copiedId}
+              fetchBookingStatus={fetchBookingStatus}
+            />
+          ))}
         </div>
       )}
     </div>

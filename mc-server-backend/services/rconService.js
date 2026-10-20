@@ -2,25 +2,29 @@ const { Rcon } = require('rcon-client');
 require('dotenv').config();
 
 /**
- * Get RCON configuration for target server ID (1-4) from environment variables
+ * Get RCON configuration for target server ID (1-4) from environment variables or database override
  * @param {number|string} serverId 
+ * @param {object} overrideConfig { pi_host, rcon_port }
  * @returns {object} { host, port, password, timeout, isSimulation }
  */
-const getRconConfig = (serverId) => {
+const getRconConfig = (serverId, overrideConfig = {}) => {
   const sId = String(serverId);
 
-  // Map server IDs to env config (RCON_HOST_1..4 or fallback SSH_HOST_A..D or localhost)
-  const hostEnv = process.env[`RCON_HOST_${sId}`];
-  const sshFallback = sId === '1' ? process.env.SSH_HOST_A : sId === '2' ? process.env.SSH_HOST_B : sId === '3' ? process.env.SSH_HOST_C : process.env.SSH_HOST_D;
-  
-  const host = hostEnv || sshFallback || '127.0.0.1';
-  const port = parseInt(process.env[`RCON_PORT_${sId}`] || process.env.RCON_PORT_DEFAULT || '25575', 10);
-  const password = process.env[`RCON_PASSWORD_${sId}`] || process.env.RCON_PASSWORD_DEFAULT || '';
+  // 1. Host priority: overrideConfig.pi_host -> MC{id}_RCON_HOST -> RCON_HOST_{id} -> PI_{id}_HOST -> default 10.250.85.16
+  const hostEnv = process.env[`MC${sId}_RCON_HOST`] || process.env[`RCON_HOST_${sId}`] || process.env[`PI_${sId}_HOST`];
+  const host = overrideConfig.pi_host || hostEnv || '10.250.85.16';
+
+  // 2. Port priority: overrideConfig.rcon_port -> MC{id}_RCON_PORT -> RCON_PORT_{id} -> PI_{id}_RCON_PORT -> default per id
+  const defaultPorts = { '1': 25575, '2': 25576, '3': 25577, '4': 25578 };
+  const portEnv = process.env[`MC${sId}_RCON_PORT`] || process.env[`RCON_PORT_${sId}`] || process.env[`PI_${sId}_RCON_PORT`];
+  const port = parseInt(overrideConfig.rcon_port || portEnv || defaultPorts[sId] || '25575', 10);
+
+  const password = process.env[`RCON_PASSWORD_${sId}`] || process.env[`PI_${sId}_RCON_PASS`] || process.env.RCON_PASSWORD_DEFAULT || '';
   const timeout = parseInt(process.env.RCON_TIMEOUT || '5000', 10);
 
   // Simulation mode check: Enable if explicit flag set OR password unconfigured / default dummy placeholder
   const forceSimulation = process.env.RCON_SIMULATION_MODE === 'true';
-  const isDummyConfig = !password || password.includes('your_') || host === '127.0.0.1';
+  const isDummyConfig = !password || password.includes('your_');
   const isSimulation = forceSimulation || isDummyConfig;
 
   return { host, port, password, timeout, isSimulation };
@@ -33,11 +37,12 @@ const getRconConfig = (serverId) => {
  * 
  * @param {number|string} serverId - Server ID (1 to 4)
  * @param {string} command - Console command string
+ * @param {object} overrideConfig - Optional { pi_host, rcon_port } from database
  * @returns {Promise<{success: boolean, response?: string, error?: string, rawError?: string, simulated?: boolean, serverId: number}>}
  */
-const sendRconCommand = async (serverId, command) => {
+const sendRconCommand = async (serverId, command, overrideConfig = {}) => {
   const numericId = Number(serverId);
-  const config = getRconConfig(serverId);
+  const config = getRconConfig(serverId, overrideConfig);
 
   console.log(`[RCON Command Request] Server ID: ${numericId} | IP: ${config.host}:${config.port} | Command: "${command}"`);
 
@@ -69,13 +74,20 @@ const sendRconCommand = async (serverId, command) => {
   let rconClient = null;
   try {
     // 1. Connect to Minecraft RCON with strict timeout limit
-    rconClient = await Promise.race([
-      Rcon.connect({
-        host: config.host,
-        port: config.port,
-        password: config.password,
-        timeout: config.timeout
-      }),
+    rconClient = new Rcon({
+      host: config.host,
+      port: config.port,
+      password: config.password,
+      timeout: config.timeout
+    });
+
+    // Attach error listener immediately to prevent unhandled 'error' events (like ECONNRESET) from crashing Node.js
+    rconClient.on('error', (err) => {
+      console.warn(`[RCON Socket Error Handled] Server ${numericId}: ${err.message}`);
+    });
+
+    await Promise.race([
+      rconClient.connect(),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`RCON connection timed out (${config.timeout}ms)`)), config.timeout)
       )

@@ -7,13 +7,18 @@ exports.getStats = async (req, res) => {
     const [pendingCount] = await db.query('SELECT COUNT(*) as count FROM bookings WHERE status = "pending"');
     const [confirmedCount] = await db.query('SELECT COUNT(*) as count FROM bookings WHERE status = "confirmed"');
     const [revenueCount] = await db.query('SELECT SUM(amount) as total FROM bookings WHERE status = "confirmed"');
+    const [playersSum] = await db.query('SELECT COALESCE(SUM(current_players), 0) as total FROM servers WHERE status = "online"');
+
+    const totalOnline = Number(playersSum[0]?.total || 0);
 
     res.json({
       totalUsers: userCount[0].count,
       totalServers: serverCount[0].count,
       pendingBookings: pendingCount[0].count,
       activeBookings: confirmedCount[0].count,
-      totalRevenue: revenueCount[0].total || 0
+      totalRevenue: revenueCount[0].total || 0,
+      onlineUsers: totalOnline,
+      total_players: totalOnline
     });
   } catch (err) {
     console.error('getStats error:', err);
